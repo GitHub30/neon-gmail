@@ -95,8 +95,8 @@ export function renderSettingsModal(store: MailStore, isOpen: boolean): string {
             <strong style="color:var(--ink-primary);">${escapeHtml(store.tr('proxyDownloadTitle'))}</strong>
             <span>${
               loc === 'ja'
-                ? 'ブラウザからIMAP (993/143)・SMTP (465/587) へ接続するためのプロキシファイルを直接ダウンロードできます。すべて Access-Control-Allow-Origin: * および SSRF 対策に対応しています。'
-                : 'Download any self-hosted IMAP/SMTP proxy below. All proxies support CORS (Access-Control-Allow-Origin: *), TLS/STARTTLS, and SSRF protection.'
+                ? '既定の Cloudflare Workers Proxy（https://neon-gmail-proxy.6u.workers.dev）が設定済みです。自前でホストしたい場合は以下からプロキシファイルをダウンロードできます（すべて Access-Control-Allow-Origin: * および SSRF 対策済み）。'
+                : 'The default Cloudflare Workers Proxy (https://neon-gmail-proxy.6u.workers.dev) is enabled out of the box. You can also download a self-hosted proxy below (all support CORS Access-Control-Allow-Origin: * and SSRF protection).'
             }</span>
             <div style="display:flex;flex-wrap:wrap;gap:8px;">
               <a class="btn btn-sm" href="./proxies/proxy.php" download="proxy.php">${icons.download}<span>proxy.php (PHP 8+)</span></a>

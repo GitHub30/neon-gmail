@@ -140,6 +140,8 @@ export async function sendSmtpEmail(
     { hostname: host, port },
     { secureTransport: tlsMode === 'tls' ? 'on' : tlsMode === 'starttls' ? 'starttls' : 'off', allowHalfOpen: false },
   );
+  socket.opened?.catch(() => {});
+  socket.closed.catch(() => {});
   let reader = new SmtpLineReader(socket.readable);
   let writer = socket.writable.getWriter();
   const encoder = new TextEncoder();
@@ -170,6 +172,8 @@ export async function sendSmtpEmail(
       reader.release();
       writer.releaseLock();
       socket = socket.startTls();
+      socket.opened?.catch(() => {});
+      socket.closed.catch(() => {});
       reader = new SmtpLineReader(socket.readable);
       writer = socket.writable.getWriter();
       ehloResp = await sendCmd('EHLO [127.0.0.1]', [250]);

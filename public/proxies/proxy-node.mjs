@@ -513,6 +513,7 @@ function resolveRoute(url) {
   const map = {
     health: '/health',
     test: '/api/test',
+    dns_ptr: '/api/dns/ptr',
     imap_mailboxes: '/api/imap/mailboxes',
     imap_messages: '/api/imap/messages',
     imap_message: '/api/imap/message',
@@ -532,15 +533,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   let route = '/';
+  let parsedUrl;
   try {
-    const url = new URL(req.url || '/', `http://localhost:${PORT}`);
-    route = resolveRoute(url);
+    parsedUrl = new URL(req.url || '/', `http://localhost:${PORT}`);
+    route = resolveRoute(parsedUrl);
   } catch {
     return sendJson(res, 400, { ok: false, error: 'Malformed request URL.' });
   }
 
   if (req.method === 'GET' && (route === '/' || route === '/health')) {
-    return sendJson(res, 200, { ok: true, service: 'neon-gmail-proxy', engine: 'node', protocols: ['imap', 'smtp'], cors: '*', version: '1.0.0' });
+    return sendJson(res, 200, { ok: true, service: 'neon-gmail-proxy', engine: 'node', protocols: ['imap', 'smtp', 'dns-ptr'], cors: '*', version: '1.1.0' });
   }
   if (PROXY_AUTH_TOKEN) {
     const provided = String(req.headers['x-proxy-token'] || '');
@@ -550,6 +552,39 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 401, { ok: false, error: 'Unauthorized' });
     }
   }
+
+  if (route === '/api/dns/ptr' && (req.method === 'GET' || req.method === 'POST')) {
+    try {
+      let domainInput = parsedUrl.searchParams.get('domain') || parsedUrl.searchParams.get('email') || '';
+      if (!domainInput && req.method === 'POST') {
+        const b = await readBody(req);
+        domainInput = String(b.domain || b.email || '');
+      }
+      const clean = domainInput.trim().toLowerCase().replace(/^.*@/, '').replace(/\.$/, '');
+      if (!clean) return sendJson(res, 400, { ok: false, error: 'domain or email is required.' });
+      const v = await validateHost(clean);
+      const rawAs = await dns.resolve4(v.host).catch(() => []);
+      const aRecords = rawAs.filter((ip) => net.isIPv4(ip) && !isPrivateIp(ip));
+      const ptrHosts = [];
+      for (const ip of aRecords.slice(0, 5)) {
+        const ptrs = await dns.reverse(ip).catch(() => []);
+        for (const rawPtr of ptrs) {
+          const cand = String(rawPtr).replace(/\.$/, '').trim().toLowerCase();
+          if (!cand) continue;
+          try {
+            const vp = await validateHost(cand);
+            if (!ptrHosts.includes(vp.host)) ptrHosts.push(vp.host);
+          } catch {
+            // skip blocked PTR target
+          }
+        }
+      }
+      return sendJson(res, 200, { ok: true, domain: v.host, aRecords, ptrHosts, primaryHost: ptrHosts[0] ?? null });
+    } catch (err) {
+      return sendJson(res, 400, { ok: false, error: String(err?.message || err).slice(0, 300) });
+    }
+  }
+
   if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'Method not allowed. Use POST.' });
 
   try {

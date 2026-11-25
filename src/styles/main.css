@@ -1835,6 +1835,11 @@ button {
   color: var(--danger);
 }
 
+.status-banner.info {
+  background: var(--bg-active-pill);
+  color: var(--ink-active-pill);
+}
+
 /* Popover menus */
 .popover-wrap {
   position: relative;

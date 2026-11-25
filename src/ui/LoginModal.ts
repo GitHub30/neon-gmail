@@ -1,7 +1,7 @@
 import { icons } from '../core/icons.ts';
 import { escapeHtml } from '../core/sanitizer.ts';
 import type { MailStore } from '../core/store.ts';
-import { defaultServerForEmail, detectProvider } from '../data/providers.ts';
+import { DEFAULT_CLOUDFLARE_PROXY_URL, defaultServerForEmail, detectProvider } from '../data/providers.ts';
 import type { MailAccount } from '../types/mail.ts';
 
 export interface LoginModalState {
@@ -11,12 +11,11 @@ export interface LoginModalState {
   showPassword: boolean;
   showAdvanced: boolean;
   testing: boolean;
-  testStatus: { ok: boolean; message: string } | null;
+  testStatus: { kind: 'info' | 'success' | 'error'; message: string; allowSkipVerify?: boolean } | null;
   email: string;
   password: string;
   displayName: string;
   proxyUrl: string;
-  proxyType: MailAccount['proxyType'];
   proxyToken: string;
   imapHost: string;
   imapPort: number;
@@ -33,14 +32,13 @@ export function createInitialLoginState(account?: MailAccount): LoginModalState 
       editingAccountId: account.id,
       serverTouched: true,
       showPassword: false,
-      showAdvanced: Boolean(account.proxyUrl),
+      showAdvanced: false,
       testing: false,
       testStatus: null,
       email: account.email,
       password: account.password,
       displayName: account.displayName,
-      proxyUrl: account.proxyUrl,
-      proxyType: account.proxyType,
+      proxyUrl: account.proxyUrl || DEFAULT_CLOUDFLARE_PROXY_URL,
       proxyToken: account.proxyToken,
       imapHost: account.server.imapHost,
       imapPort: account.server.imapPort,
@@ -62,8 +60,7 @@ export function createInitialLoginState(account?: MailAccount): LoginModalState 
     email: '',
     password: '',
     displayName: '',
-    proxyUrl: '',
-    proxyType: 'auto',
+    proxyUrl: DEFAULT_CLOUDFLARE_PROXY_URL,
     proxyToken: '',
     imapHost: def.imapHost,
     imapPort: def.imapPort,
@@ -137,56 +134,22 @@ export function renderLoginModal(store: MailStore, state: LoginModalState): stri
               </div>
             </div>
 
-            <div class="form-group">
-              <label for="login-display-name">${escapeHtml(store.tr('displayNameLabel'))}</label>
-              <input
-                id="login-display-name"
-                name="displayName"
-                class="field-input"
-                type="text"
-                placeholder="${loc === 'ja' ? '山田 太郎' : 'Your Name'}"
-                value="${escapeHtml(state.displayName)}"
-              />
-            </div>
-
-            <div class="form-group">
-              <label for="login-proxy-url">${escapeHtml(store.tr('proxyUrlLabel'))}</label>
-              <input
-                id="login-proxy-url"
-                name="proxyUrl"
-                class="field-input"
-                type="url"
-                placeholder="https://neon-gmail-proxy.your-sub.workers.dev  or  https://example.com/proxy.php"
-                value="${escapeHtml(state.proxyUrl)}"
-              />
-              <span class="form-hint">${escapeHtml(store.tr('proxyUrlHint'))}</span>
-            </div>
-
-            <div class="form-row-2">
-              <div class="form-group">
-                <label for="login-proxy-type">${escapeHtml(store.tr('proxyTypeLabel'))}</label>
-                <select id="login-proxy-type" name="proxyType" class="field-select">
-                  <option value="auto" ${state.proxyType === 'auto' ? 'selected' : ''}>Auto Detect</option>
-                  <option value="cloudflare" ${state.proxyType === 'cloudflare' ? 'selected' : ''}>Cloudflare Workers (IMAP/SMTP)</option>
-                  <option value="php" ${state.proxyType === 'php' ? 'selected' : ''}>PHP proxy.php (IMAP/SMTP)</option>
-                  <option value="node" ${state.proxyType === 'node' ? 'selected' : ''}>Node.js proxy-node.mjs</option>
-                  <option value="local" ${state.proxyType === 'local' ? 'selected' : ''}>Local / Offline Mode</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label for="login-proxy-token">${escapeHtml(store.tr('proxyTokenLabel'))}</label>
-                <input
-                  id="login-proxy-token"
-                  name="proxyToken"
-                  class="field-input"
-                  type="password"
-                  autocomplete="off"
-                  placeholder="${loc === 'ja' ? '任意の共有シークレット' : 'Optional shared secret'}"
-                  value="${escapeHtml(state.proxyToken)}"
-                />
-              </div>
-            </div>
+            ${
+              state.testStatus
+                ? `<div class="status-banner ${state.testStatus.kind}" role="status">
+                    <div>${escapeHtml(state.testStatus.message)}</div>
+                    ${
+                      state.testStatus.allowSkipVerify
+                        ? `<div style="margin-top:8px;">
+                            <button type="button" class="btn btn-sm" data-action="save-login-skip-verify">
+                              ${loc === 'ja' ? '接続確認をスキップして保存' : 'Save without verifying'}
+                            </button>
+                          </div>`
+                        : ''
+                    }
+                  </div>`
+                : ''
+            }
 
             <div>
               <button type="button" class="btn btn-sm" aria-expanded="${state.showAdvanced}" data-action="toggle-login-advanced">
@@ -198,7 +161,45 @@ export function renderLoginModal(store: MailStore, state: LoginModalState): stri
             ${
               state.showAdvanced
                 ? `
-              <div class="notice-box" style="flex-direction:column;gap:10px;">
+              <div class="notice-box" style="flex-direction:column;gap:12px;">
+                <div class="form-group" style="width:100%;">
+                  <label for="login-display-name">${escapeHtml(store.tr('displayNameLabel'))}</label>
+                  <input
+                    id="login-display-name"
+                    name="displayName"
+                    class="field-input"
+                    type="text"
+                    placeholder="${loc === 'ja' ? '山田 太郎' : 'Your Name'}"
+                    value="${escapeHtml(state.displayName)}"
+                  />
+                </div>
+
+                <div class="form-group" style="width:100%;">
+                  <label for="login-proxy-url">${escapeHtml(store.tr('proxyUrlLabel'))}</label>
+                  <input
+                    id="login-proxy-url"
+                    name="proxyUrl"
+                    class="field-input"
+                    type="url"
+                    placeholder="${escapeHtml(DEFAULT_CLOUDFLARE_PROXY_URL)}"
+                    value="${escapeHtml(state.proxyUrl)}"
+                  />
+                  <span class="form-hint">${escapeHtml(store.tr('proxyUrlHint'))}</span>
+                </div>
+
+                <div class="form-group" style="width:100%;">
+                  <label for="login-proxy-token">${escapeHtml(store.tr('proxyTokenLabel'))}</label>
+                  <input
+                    id="login-proxy-token"
+                    name="proxyToken"
+                    class="field-input"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="${loc === 'ja' ? '任意の共有シークレット' : 'Optional shared secret'}"
+                    value="${escapeHtml(state.proxyToken)}"
+                  />
+                </div>
+
                 <div class="form-row-2" style="width:100%;">
                   <div class="form-group">
                     <label for="login-imap-host">IMAP Host</label>
@@ -245,12 +246,6 @@ export function renderLoginModal(store: MailStore, state: LoginModalState): stri
                 : ''
             }
 
-            ${
-              state.testStatus
-                ? `<div class="status-banner ${state.testStatus.ok ? 'success' : 'error'}" role="status">${escapeHtml(state.testStatus.message)}</div>`
-                : ''
-            }
-
             <div class="notice-box">
               ${icons.shield}
               <span>${escapeHtml(store.tr('localStorageNotice'))}</span>
@@ -263,7 +258,9 @@ export function renderLoginModal(store: MailStore, state: LoginModalState): stri
               <span>${state.testing ? (loc === 'ja' ? '接続テスト中…' : 'Testing…') : escapeHtml(store.tr('testConnection'))}</span>
             </button>
             <button type="button" class="btn" data-action="close-login-modal">${escapeHtml(store.tr('cancel'))}</button>
-            <button type="submit" class="btn btn-primary">${escapeHtml(store.tr('signInSave'))}</button>
+            <button type="submit" class="btn btn-primary" ${state.testing ? 'disabled' : ''}>
+              ${state.testing ? (loc === 'ja' ? '接続確認中…' : 'Signing in…') : escapeHtml(store.tr('signInSave'))}
+            </button>
           </div>
         </form>
       </div>

@@ -175,6 +175,9 @@ export class ImapClient {
       { hostname: host, port },
       { secureTransport: tlsMode === 'tls' ? 'on' : tlsMode === 'starttls' ? 'starttls' : 'off', allowHalfOpen: false },
     );
+    // Prevent Cloudflare Workers unhandled promise rejection (HTTP 1101 without CORS) on connect/close errors
+    this.socket.opened?.catch(() => {});
+    this.socket.closed.catch(() => {});
     this.reader = new SocketLineReader(this.socket.readable);
     this.writer = this.socket.writable.getWriter();
 
@@ -189,6 +192,8 @@ export class ImapClient {
       this.reader.release();
       this.writer.releaseLock();
       this.socket = this.socket.startTls();
+      this.socket.opened?.catch(() => {});
+      this.socket.closed.catch(() => {});
       this.reader = new SocketLineReader(this.socket.readable);
       this.writer = this.socket.writable.getWriter();
     }

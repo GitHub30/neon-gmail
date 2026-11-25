@@ -970,6 +970,7 @@ function resolve_route(): string
     $map = [
         'health' => '/health',
         'test' => '/api/test',
+        'dns_ptr' => '/api/dns/ptr',
         'imap_mailboxes' => '/api/imap/mailboxes',
         'imap_messages' => '/api/imap/messages',
         'imap_message' => '/api/imap/message',
@@ -1001,9 +1002,9 @@ if ($method === 'GET' && ($route === '/' || $route === '/health')) {
         'service' => 'neon-gmail-proxy',
         'engine' => 'php',
         'phpVersion' => PHP_VERSION,
-        'protocols' => ['imap', 'smtp'],
+        'protocols' => ['imap', 'smtp', 'dns-ptr'],
         'cors' => '*',
-        'version' => '1.0.0',
+        'version' => '1.1.0',
     ]);
 }
 
@@ -1012,6 +1013,73 @@ if (is_string($expectedToken) && $expectedToken !== '') {
     $provided = $_SERVER['HTTP_X_PROXY_TOKEN'] ?? '';
     if (!is_string($provided) || !hash_equals($expectedToken, $provided)) {
         respond_json(['ok' => false, 'error' => 'Unauthorized: invalid or missing X-Proxy-Token.'], 401);
+    }
+}
+
+$allowCustom = getenv('NEON_ALLOW_CUSTOM_PORT') === '1';
+$allowLocal = getenv('NEON_ALLOW_LOCAL_TEST') === '1';
+
+if ($route === '/api/dns/ptr' && ($method === 'GET' || $method === 'POST')) {
+    try {
+        $domainInput = $_GET['domain'] ?? $_GET['email'] ?? '';
+        if (!is_string($domainInput) || trim($domainInput) === '') {
+            if ($method === 'POST') {
+                $rawBodyTmp = file_get_contents('php://input', false, null, 0, 8192);
+                $tmpBody = is_string($rawBodyTmp) ? json_decode($rawBodyTmp, true) : null;
+                if (is_array($tmpBody)) {
+                    $domainInput = (string)($tmpBody['domain'] ?? $tmpBody['email'] ?? '');
+                }
+            }
+        }
+        $cleanDomain = strtolower(rtrim(preg_replace('/^.*@/', '', trim((string)$domainInput)) ?? '', '.'));
+        if ($cleanDomain === '') {
+            respond_json(['ok' => false, 'error' => 'domain or email is required.'], 400);
+        }
+        $validated = validate_host($cleanDomain, $allowLocal);
+        $aRecords = [];
+        $recs = @dns_get_record($validated['host'], DNS_A);
+        if (is_array($recs)) {
+            foreach ($recs as $r) {
+                $ip = $r['ip'] ?? '';
+                if (is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) && !is_blocked_ip($ip)) {
+                    if (!in_array($ip, $aRecords, true)) $aRecords[] = $ip;
+                }
+            }
+        }
+        $ptrHosts = [];
+        foreach (array_slice($aRecords, 0, 5) as $ip) {
+            $arpa = implode('.', array_reverse(explode('.', $ip))) . '.in-addr.arpa';
+            $ptrs = @dns_get_record($arpa, DNS_PTR);
+            $candidates = [];
+            if (is_array($ptrs)) {
+                foreach ($ptrs as $p) {
+                    if (is_string($p['target'] ?? null)) $candidates[] = $p['target'];
+                }
+            }
+            if (empty($candidates)) {
+                $rev = @gethostbyaddr($ip);
+                if (is_string($rev) && $rev !== $ip) $candidates[] = $rev;
+            }
+            foreach ($candidates as $cand) {
+                $norm = strtolower(rtrim(trim($cand), '.'));
+                if ($norm === '' || $norm === $ip) continue;
+                try {
+                    $vPtr = validate_host($norm, $allowLocal);
+                    if (!in_array($vPtr['host'], $ptrHosts, true)) $ptrHosts[] = $vPtr['host'];
+                } catch (Throwable) {
+                    // ignore blocked/invalid PTR targets
+                }
+            }
+        }
+        respond_json([
+            'ok' => true,
+            'domain' => $validated['host'],
+            'aRecords' => $aRecords,
+            'ptrHosts' => $ptrHosts,
+            'primaryHost' => $ptrHosts[0] ?? null,
+        ]);
+    } catch (Throwable $e) {
+        respond_json(['ok' => false, 'error' => sanitize_error($e->getMessage())], 400);
     }
 }
 
@@ -1027,9 +1095,6 @@ $body = json_decode($rawBody, true);
 if (!is_array($body)) {
     respond_json(['ok' => false, 'error' => 'Invalid JSON payload.'], 400);
 }
-
-$allowCustom = getenv('NEON_ALLOW_CUSTOM_PORT') === '1';
-$allowLocal = getenv('NEON_ALLOW_LOCAL_TEST') === '1';
 
 try {
     if ($route === '/api/test') {

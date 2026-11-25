@@ -11,9 +11,17 @@ var CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Proxy-Token",
   "Access-Control-Max-Age": "86400",
+  "Vary": "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
   "X-Content-Type-Options": "nosniff",
   "Cache-Control": "no-store"
 };
+function buildCorsHeaders(request) {
+  const reqHeaders = request?.headers.get("Access-Control-Request-Headers")?.trim();
+  return {
+    ...CORS_HEADERS,
+    ...reqHeaders ? { "Access-Control-Allow-Headers": reqHeaders } : {}
+  };
+}
 var ALLOWED_MAIL_PORTS = /* @__PURE__ */ new Set([143, 993, 25, 465, 587, 2525, 1143, 1025]);
 var BLOCKED_HOSTNAMES = /* @__PURE__ */ new Set([
   "localhost",
@@ -697,6 +705,10 @@ var ImapClient = class {
       { hostname: host, port },
       { secureTransport: tlsMode === "tls" ? "on" : tlsMode === "starttls" ? "starttls" : "off", allowHalfOpen: false }
     );
+    this.socket.opened?.catch(() => {
+    });
+    this.socket.closed.catch(() => {
+    });
     this.reader = new SocketLineReader(this.socket.readable);
     this.writer = this.socket.writable.getWriter();
     const greeting = await this.reader.readLine();
@@ -709,6 +721,10 @@ var ImapClient = class {
       this.reader.release();
       this.writer.releaseLock();
       this.socket = this.socket.startTls();
+      this.socket.opened?.catch(() => {
+      });
+      this.socket.closed.catch(() => {
+      });
       this.reader = new SocketLineReader(this.socket.readable);
       this.writer = this.socket.writable.getWriter();
     }
@@ -1022,6 +1038,10 @@ async function sendSmtpEmail(config, email, allowCustomPorts = false, allowedHos
     { hostname: host, port },
     { secureTransport: tlsMode === "tls" ? "on" : tlsMode === "starttls" ? "starttls" : "off", allowHalfOpen: false }
   );
+  socket.opened?.catch(() => {
+  });
+  socket.closed.catch(() => {
+  });
   let reader = new SmtpLineReader(socket.readable);
   let writer = socket.writable.getWriter();
   const encoder = new TextEncoder();
@@ -1048,6 +1068,10 @@ async function sendSmtpEmail(config, email, allowCustomPorts = false, allowedHos
       reader.release();
       writer.releaseLock();
       socket = socket.startTls();
+      socket.opened?.catch(() => {
+      });
+      socket.closed.catch(() => {
+      });
       reader = new SmtpLineReader(socket.readable);
       writer = socket.writable.getWriter();
       ehloResp = await sendCmd("EHLO [127.0.0.1]", [250]);
@@ -1118,12 +1142,12 @@ var HttpError = class extends Error {
     this.status = status;
   }
 };
-function jsonResponse(data, status = 200) {
+function jsonResponse(data, status = 200, request) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      ...CORS_HEADERS
+      ...buildCorsHeaders(request)
     }
   });
 }
@@ -1142,12 +1166,67 @@ async function parseJsonBody(request) {
     throw new HttpError(400, "Invalid JSON payload.");
   }
 }
+async function queryDoh(name, type) {
+  const endpoints = [
+    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${type}`,
+    `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${type}`
+  ];
+  const expectedTypeNum = type === "A" ? 1 : 12;
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint, {
+        headers: { Accept: "application/dns-json" }
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (!Array.isArray(data.Answer)) continue;
+      const values = data.Answer.filter((a) => a.type === expectedTypeNum && typeof a.data === "string").map((a) => a.data.trim()).filter(Boolean);
+      if (values.length > 0) return values;
+    } catch {
+    }
+  }
+  return [];
+}
+async function resolveDomainAToPtr(rawDomain, allowedHosts) {
+  const cleaned = rawDomain.trim().toLowerCase().replace(/^.*@/, "").replace(/\.$/, "");
+  const domain = validateMailHost(cleaned);
+  const rawAs = await queryDoh(domain, "A");
+  const aRecords = [];
+  for (const ip of rawAs) {
+    if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) continue;
+    const octets = ip.split(".").map(Number);
+    if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) continue;
+    if (isPrivateIPv4(octets)) continue;
+    if (!aRecords.includes(ip)) aRecords.push(ip);
+  }
+  const ptrHosts = [];
+  for (const ip of aRecords.slice(0, 5)) {
+    const arpa = `${ip.split(".").reverse().join(".")}.in-addr.arpa`;
+    const ptrs = await queryDoh(arpa, "PTR");
+    for (const rawPtr of ptrs) {
+      const candidate = rawPtr.replace(/\.$/, "").trim().toLowerCase();
+      if (!candidate) continue;
+      try {
+        const safeHost = validateMailHost(candidate, allowedHosts);
+        if (!ptrHosts.includes(safeHost)) ptrHosts.push(safeHost);
+      } catch {
+      }
+    }
+  }
+  return {
+    domain,
+    aRecords,
+    ptrHosts,
+    primaryHost: ptrHosts[0] ?? null
+  };
+}
 function resolveRoute(url) {
   const action = url.searchParams.get("action");
   if (action) {
     const map = {
       health: "/health",
       test: "/api/test",
+      dns_ptr: "/api/dns/ptr",
       imap_mailboxes: "/api/imap/mailboxes",
       imap_messages: "/api/imap/messages",
       imap_message: "/api/imap/message",
@@ -1162,33 +1241,49 @@ function resolveRoute(url) {
 }
 var index_default = {
   async fetch(request, env) {
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
-    }
-    const url = new URL(request.url);
-    const route = resolveRoute(url);
-    if (request.method === "GET" && (route === "/" || route === "/health")) {
-      return jsonResponse({
-        ok: true,
-        service: "neon-gmail-proxy",
-        engine: "cloudflare-workers",
-        protocols: ["imap", "smtp"],
-        cors: "*",
-        version: "1.0.0"
-      });
-    }
-    if (env.PROXY_AUTH_TOKEN) {
-      const provided = request.headers.get("X-Proxy-Token") ?? "";
-      if (!provided || !timingSafeEqual(provided, env.PROXY_AUTH_TOKEN)) {
-        return jsonResponse({ ok: false, error: "Unauthorized: invalid or missing X-Proxy-Token." }, 401);
-      }
-    }
-    if (request.method !== "POST") {
-      return jsonResponse({ ok: false, error: "Method not allowed. Use POST." }, 405);
-    }
-    const allowCustomPorts = env.ALLOW_CUSTOM_PORTS === "true";
-    const allowedHosts = env.ALLOWED_MAIL_HOSTS ? new Set(env.ALLOWED_MAIL_HOSTS.split(",").map((h) => h.trim().toLowerCase()).filter(Boolean)) : void 0;
     try {
+      if (request.method === "OPTIONS") {
+        return new Response(null, { status: 204, headers: buildCorsHeaders(request) });
+      }
+      const url = new URL(request.url);
+      const route = resolveRoute(url);
+      if (request.method === "GET" && (route === "/" || route === "/health")) {
+        return jsonResponse(
+          {
+            ok: true,
+            service: "neon-gmail-proxy",
+            engine: "cloudflare-workers",
+            protocols: ["imap", "smtp", "dns-ptr"],
+            cors: "*",
+            version: "1.1.0"
+          },
+          200,
+          request
+        );
+      }
+      if (env.PROXY_AUTH_TOKEN) {
+        const provided = request.headers.get("X-Proxy-Token") ?? "";
+        if (!provided || !timingSafeEqual(provided, env.PROXY_AUTH_TOKEN)) {
+          return jsonResponse({ ok: false, error: "Unauthorized: invalid or missing X-Proxy-Token." }, 401, request);
+        }
+      }
+      const allowCustomPorts = env.ALLOW_CUSTOM_PORTS === "true";
+      const allowedHosts = env.ALLOWED_MAIL_HOSTS ? new Set(env.ALLOWED_MAIL_HOSTS.split(",").map((h) => h.trim().toLowerCase()).filter(Boolean)) : void 0;
+      if (route === "/api/dns/ptr" && (request.method === "GET" || request.method === "POST")) {
+        let domain = url.searchParams.get("domain") || url.searchParams.get("email") || "";
+        if (!domain && request.method === "POST") {
+          const body = await parseJsonBody(request);
+          domain = body.domain || body.email || "";
+        }
+        if (!domain.trim()) {
+          throw new HttpError(400, "domain or email is required.");
+        }
+        const resolved = await resolveDomainAToPtr(domain, allowedHosts);
+        return jsonResponse({ ok: true, ...resolved }, 200, request);
+      }
+      if (request.method !== "POST") {
+        return jsonResponse({ ok: false, error: "Method not allowed. Use POST." }, 405, request);
+      }
       if (route === "/api/test") {
         const body = await parseJsonBody(request);
         const started = Date.now();
@@ -1196,12 +1291,16 @@ var index_default = {
         try {
           const greeting = await client.connectAndLogin();
           const mailboxes = await client.listMailboxes();
-          return jsonResponse({
-            ok: true,
-            greeting,
-            mailboxes,
-            latencyMs: Date.now() - started
-          });
+          return jsonResponse(
+            {
+              ok: true,
+              greeting,
+              mailboxes,
+              latencyMs: Date.now() - started
+            },
+            200,
+            request
+          );
         } finally {
           await client.close();
         }
@@ -1212,7 +1311,7 @@ var index_default = {
         try {
           await client.connectAndLogin();
           const mailboxes = await client.listMailboxes();
-          return jsonResponse({ ok: true, mailboxes });
+          return jsonResponse({ ok: true, mailboxes }, 200, request);
         } finally {
           await client.close();
         }
@@ -1223,7 +1322,7 @@ var index_default = {
         try {
           await client.connectAndLogin();
           const result = await client.fetchMessages(body.folder || "INBOX", body.limit ?? 30, body.page ?? 1);
-          return jsonResponse({ ok: true, ...result });
+          return jsonResponse({ ok: true, ...result }, 200, request);
         } finally {
           await client.close();
         }
@@ -1234,8 +1333,8 @@ var index_default = {
         try {
           await client.connectAndLogin();
           const message = await client.fetchSingleMessage(body.folder || "INBOX", body.uid);
-          if (!message) return jsonResponse({ ok: false, error: "Message not found." }, 404);
-          return jsonResponse({ ok: true, message });
+          if (!message) return jsonResponse({ ok: false, error: "Message not found." }, 404, request);
+          return jsonResponse({ ok: true, message }, 200, request);
         } finally {
           await client.close();
         }
@@ -1246,7 +1345,7 @@ var index_default = {
         try {
           await client.connectAndLogin();
           await client.updateFlags(body.folder || "INBOX", body.uids, body.op, body.flags);
-          return jsonResponse({ ok: true });
+          return jsonResponse({ ok: true }, 200, request);
         } finally {
           await client.close();
         }
@@ -1257,7 +1356,7 @@ var index_default = {
         try {
           await client.connectAndLogin();
           await client.moveMessages(body.folder || "INBOX", body.uids, body.targetFolder);
-          return jsonResponse({ ok: true });
+          return jsonResponse({ ok: true }, 200, request);
         } finally {
           await client.close();
         }
@@ -1268,7 +1367,7 @@ var index_default = {
         try {
           await client.connectAndLogin();
           await client.deleteMessages(body.folder || "INBOX", body.uids, body.expunge ?? true);
-          return jsonResponse({ ok: true });
+          return jsonResponse({ ok: true }, 200, request);
         } finally {
           await client.close();
         }
@@ -1276,12 +1375,12 @@ var index_default = {
       if (route === "/api/smtp/send") {
         const body = await parseJsonBody(request);
         const result = await sendSmtpEmail(body.smtp, body.message, allowCustomPorts, allowedHosts);
-        return jsonResponse(result);
+        return jsonResponse(result, 200, request);
       }
-      return jsonResponse({ ok: false, error: `Unknown endpoint: ${route}` }, 404);
+      return jsonResponse({ ok: false, error: `Unknown endpoint: ${route}` }, 404, request);
     } catch (err) {
       const status = err instanceof HttpError ? err.status : 400;
-      return jsonResponse({ ok: false, error: sanitizeErrorMessage(err) }, status);
+      return jsonResponse({ ok: false, error: sanitizeErrorMessage(err) }, status, request);
     }
   }
 };

@@ -3,9 +3,18 @@ export const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Proxy-Token',
   'Access-Control-Max-Age': '86400',
+  'Vary': 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers',
   'X-Content-Type-Options': 'nosniff',
   'Cache-Control': 'no-store',
 };
+
+export function buildCorsHeaders(request?: Request): Record<string, string> {
+  const reqHeaders = request?.headers.get('Access-Control-Request-Headers')?.trim();
+  return {
+    ...CORS_HEADERS,
+    ...(reqHeaders ? { 'Access-Control-Allow-Headers': reqHeaders } : {}),
+  };
+}
 
 export const ALLOWED_MAIL_PORTS = new Set([143, 993, 25, 465, 587, 2525, 1143, 1025]);
 

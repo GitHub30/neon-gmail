@@ -1,4 +1,18 @@
-import type { MailServerConfig } from '../types/mail.ts';
+import type { MailServerConfig, ProxyType } from '../types/mail.ts';
+
+export const DEFAULT_CLOUDFLARE_PROXY_URL = 'https://neon-gmail-proxy.6u.workers.dev';
+
+export function inferProxyTypeFromUrl(proxyUrl: string): ProxyType {
+  const trimmed = proxyUrl.trim();
+  if (!trimmed) return 'local';
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.pathname.toLowerCase().endsWith('.php')) return 'php';
+  } catch {
+    if (trimmed.toLowerCase().includes('.php')) return 'php';
+  }
+  return 'cloudflare';
+}
 
 export interface ProviderPreset {
   id: string;

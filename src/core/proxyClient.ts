@@ -225,6 +225,140 @@ function computeThreadKey(m: RemoteFetchedMessage): string {
   return `thr-sub-${norm.replace(/[^a-z0-9\u3040-\u30ff\u4e00-\u9faf]+/gi, '-').slice(0, 48)}`;
 }
 
+export interface DnsPtrResult {
+  domain: string;
+  aRecords: string[];
+  ptrHosts: string[];
+  primaryHost: string | null;
+}
+
+export interface PtrFallbackTestOutcome {
+  ok: boolean;
+  result?: ProxyTestResult;
+  usedPtrFallback: boolean;
+  server: MailAccount['server'];
+  aRecords: string[];
+  ptrHost?: string;
+  initialError?: string;
+  ptrError?: string;
+}
+
+interface DohJsonResponse {
+  Answer?: Array<{ type?: number; data?: string }>;
+}
+
+function isPublicIpv4(ip: string): boolean {
+  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) return false;
+  const o = ip.split('.').map(Number);
+  if (o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  const [a, b, c] = o as [number, number, number];
+  if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
+  if (a === 100 && b >= 64 && b <= 127) return false;
+  if (a === 169 && b === 254) return false;
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return false;
+  if (a === 192 && b === 88 && c === 99) return false;
+  if (a === 192 && b === 168) return false;
+  if (a === 198 && (b === 18 || b === 19)) return false;
+  if (a === 198 && b === 51 && c === 100) return false;
+  if (a === 203 && b === 0 && c === 113) return false;
+  return true;
+}
+
+async function queryBrowserDoh(name: string, type: 'A' | 'PTR'): Promise<string[]> {
+  const endpoints = [
+    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${type}`,
+    `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${type}`,
+  ];
+  const expectedType = type === 'A' ? 1 : 12;
+
+  for (const endpoint of endpoints) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(endpoint, {
+        headers: { Accept: 'application/dns-json' },
+        mode: 'cors',
+        signal: controller.signal,
+      });
+      if (!res.ok) continue;
+      const data = (await res.json()) as DohJsonResponse;
+      if (!Array.isArray(data.Answer)) continue;
+      const values = data.Answer
+        .filter((ans) => ans.type === expectedType && typeof ans.data === 'string')
+        .map((ans) => ans.data!.trim())
+        .filter(Boolean);
+      if (values.length > 0) return values;
+    } catch {
+      // try next resolver
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return [];
+}
+
+export async function resolveDomainPtrHosts(
+  emailOrDomain: string,
+  proxyUrl?: string,
+  proxyType: ProxyType = 'cloudflare',
+  proxyToken = '',
+): Promise<DnsPtrResult> {
+  const domain = emailOrDomain.trim().toLowerCase().replace(/^.*@/, '').replace(/\.$/, '');
+  if (!domain || !domain.includes('.')) {
+    return { domain, aRecords: [], ptrHosts: [], primaryHost: null };
+  }
+
+  // 1) Try proxy /api/dns/ptr first (avoids browser DoH blocks on restrictive networks)
+  if (proxyUrl && proxyUrl.trim()) {
+    try {
+      const res = await requestProxy<{ ok: true } & DnsPtrResult>(
+        proxyUrl,
+        proxyType,
+        proxyToken,
+        '/api/dns/ptr',
+        'dns_ptr',
+        'POST',
+        { domain },
+        10000,
+      );
+      if (Array.isArray(res.aRecords) && (res.ptrHosts?.length > 0 || res.aRecords.length > 0)) {
+        return {
+          domain: res.domain || domain,
+          aRecords: res.aRecords,
+          ptrHosts: res.ptrHosts ?? [],
+          primaryHost: res.primaryHost ?? res.ptrHosts?.[0] ?? null,
+        };
+      }
+    } catch {
+      // fall back to direct browser DoH (supports older/custom proxies without /api/dns/ptr)
+    }
+  }
+
+  // 2) Direct DNS-over-HTTPS fallback: A record -> reverse IP -> PTR record
+  const rawAs = await queryBrowserDoh(domain, 'A');
+  const aRecords = [...new Set(rawAs.filter(isPublicIpv4))];
+  const ptrHosts: string[] = [];
+
+  for (const ip of aRecords.slice(0, 5)) {
+    const arpa = `${ip.split('.').reverse().join('.')}.in-addr.arpa`;
+    const ptrs = await queryBrowserDoh(arpa, 'PTR');
+    for (const raw of ptrs) {
+      const clean = raw.replace(/\.$/, '').trim().toLowerCase();
+      if (clean && clean.includes('.') && !ptrHosts.includes(clean)) {
+        ptrHosts.push(clean);
+      }
+    }
+  }
+
+  return {
+    domain,
+    aRecords,
+    ptrHosts,
+    primaryHost: ptrHosts[0] ?? null,
+  };
+}
+
 export async function checkProxyHealth(proxyUrl: string, proxyType: ProxyType, proxyToken = ''): Promise<ProxyHealthResult> {
   return requestProxy<ProxyHealthResult>(proxyUrl, proxyType, proxyToken, '/health', 'health', 'GET', undefined, 10000);
 }
@@ -243,6 +377,72 @@ export async function testAccountConnection(account: MailAccount): Promise<Proxy
     discoveredFoldersCache.set(account.id, detectSpecialFolders(res.mailboxes));
   }
   return res;
+}
+
+export async function testAccountConnectionWithPtrFallback(
+  account: MailAccount,
+  onProgress?: (stage: 'initial' | 'dns' | 'ptr_test', detail?: string) => void,
+): Promise<PtrFallbackTestOutcome> {
+  onProgress?.('initial', account.server.imapHost);
+  try {
+    const result = await testAccountConnection(account);
+    return {
+      ok: true,
+      result,
+      usedPtrFallback: false,
+      server: account.server,
+      aRecords: [],
+    };
+  } catch (err) {
+    const initialError = err instanceof Error ? err.message : String(err);
+    const domain = account.email.trim().toLowerCase().split('@')[1] ?? '';
+    if (!domain || !domain.includes('.')) {
+      return { ok: false, usedPtrFallback: false, server: account.server, aRecords: [], initialError };
+    }
+
+    onProgress?.('dns', domain);
+    const dnsRes = await resolveDomainPtrHosts(domain, account.proxyUrl, account.proxyType, account.proxyToken);
+    const candidates = dnsRes.ptrHosts.filter(
+      (h) => h.toLowerCase() !== account.server.imapHost.trim().toLowerCase(),
+    );
+
+    let lastPtrHost: string | undefined;
+    let lastPtrError: string | undefined;
+
+    for (const ptrHost of candidates.slice(0, 3)) {
+      const candidateServer = {
+        ...account.server,
+        imapHost: ptrHost,
+        smtpHost: ptrHost,
+      };
+      lastPtrHost = ptrHost;
+      onProgress?.('ptr_test', ptrHost);
+      try {
+        const result = await testAccountConnection({ ...account, server: candidateServer });
+        return {
+          ok: true,
+          result,
+          usedPtrFallback: true,
+          server: candidateServer,
+          aRecords: dnsRes.aRecords,
+          ptrHost,
+          initialError,
+        };
+      } catch (ptrErr) {
+        lastPtrError = ptrErr instanceof Error ? ptrErr.message : String(ptrErr);
+      }
+    }
+
+    return {
+      ok: false,
+      usedPtrFallback: false,
+      server: lastPtrHost ? { ...account.server, imapHost: lastPtrHost, smtpHost: lastPtrHost } : account.server,
+      aRecords: dnsRes.aRecords,
+      ptrHost: lastPtrHost,
+      initialError,
+      ptrError: lastPtrError,
+    };
+  }
 }
 
 export async function fetchRemoteMessages(

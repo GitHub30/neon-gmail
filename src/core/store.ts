@@ -31,7 +31,7 @@ import {
   sendRemoteEmail,
   syncRemoteFlags,
 } from './proxyClient.ts';
-import { colorForString, defaultServerForEmail } from '../data/providers.ts';
+import { colorForString, defaultServerForEmail, inferProxyTypeFromUrl } from '../data/providers.ts';
 import { t, type DictKey } from '../data/i18n.ts';
 
 export interface ToastItem {
@@ -249,9 +249,9 @@ export class MailStore {
     const proxyType: MailAccount['proxyType'] =
       input.proxyType === 'local'
         ? 'local'
-        : proxyUrl
-          ? (input.proxyType || (proxyUrl.toLowerCase().endsWith('.php') ? 'php' : 'auto'))
-          : 'local';
+        : input.proxyType && proxyUrl
+          ? input.proxyType
+          : inferProxyTypeFromUrl(proxyUrl);
 
     if (existing) {
       const updated: MailAccount = {

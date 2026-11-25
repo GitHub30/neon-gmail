@@ -1,9 +1,9 @@
 import { icons } from '../core/icons.ts';
-import { checkProxyHealth, testAccountConnection } from '../core/proxyClient.ts';
+import { checkProxyHealth, testAccountConnectionWithPtrFallback } from '../core/proxyClient.ts';
 import { escapeHtml, sanitizeEmailHtml, sanitizeFilename } from '../core/sanitizer.ts';
 import { exportAllBackup, importAllBackup, saveAccounts } from '../core/storage.ts';
 import { MailStore, type StoreChangeKind } from '../core/store.ts';
-import { defaultServerForEmail, detectProvider } from '../data/providers.ts';
+import { DEFAULT_CLOUDFLARE_PROXY_URL, defaultServerForEmail, detectProvider, inferProxyTypeFromUrl } from '../data/providers.ts';
 import type { InboxCategory, MailAccount, MailAttachment, ReadingPaneMode, SystemFolder } from '../types/mail.ts';
 import { renderComposeDock } from './ComposeModal.ts';
 import { computeSnoozeDate } from './formatDate.ts';
@@ -689,96 +689,268 @@ export class NeonGmailApp {
 
     if (form.id === 'login-account-form') {
       e.preventDefault();
-      const email = this.loginState.email.trim();
-      const password = this.loginState.password;
-      if (!email || !password) return;
+      void this.handleLoginSubmit();
+    }
+  }
 
-      this.store.addOrUpdateAccount({
-        id: this.loginState.editingAccountId ?? undefined,
-        email,
-        password,
-        displayName: this.loginState.displayName.trim(),
-        proxyUrl: this.loginState.proxyUrl.trim(),
-        proxyType: this.loginState.proxyType,
-        proxyToken: this.loginState.proxyToken.trim(),
-        server: {
-          imapHost: this.loginState.imapHost.trim() || defaultServerForEmail(email).imapHost,
-          imapPort: Number(this.loginState.imapPort) || 993,
-          imapTls: this.loginState.imapTls,
-          smtpHost: this.loginState.smtpHost.trim() || defaultServerForEmail(email).smtpHost,
-          smtpPort: Number(this.loginState.smtpPort) || 465,
-          smtpTls: this.loginState.smtpTls,
-        },
+  private getEffectiveLoginProxy(): { proxyUrl: string; proxyType: MailAccount['proxyType'] } {
+    const proxyUrl = this.loginState.proxyUrl.trim() || DEFAULT_CLOUDFLARE_PROXY_URL;
+    return { proxyUrl, proxyType: inferProxyTypeFromUrl(proxyUrl) };
+  }
+
+  private buildLoginCandidateAccount(email: string, password: string): MailAccount {
+    const { proxyUrl, proxyType } = this.getEffectiveLoginProxy();
+    const def = defaultServerForEmail(email);
+    return {
+      id: this.loginState.editingAccountId ?? 'test',
+      email,
+      password,
+      displayName: this.loginState.displayName.trim(),
+      proxyUrl,
+      proxyType,
+      proxyToken: this.loginState.proxyToken.trim(),
+      server: {
+        imapHost: this.loginState.imapHost.trim() || def.imapHost,
+        imapPort: Number(this.loginState.imapPort) || 993,
+        imapTls: this.loginState.imapTls,
+        smtpHost: this.loginState.smtpHost.trim() || def.smtpHost,
+        smtpPort: Number(this.loginState.smtpPort) || 465,
+        smtpTls: this.loginState.smtpTls,
+      },
+      signature: '',
+      avatarColor: '#1a73e8',
+      addedAt: new Date().toISOString(),
+    };
+  }
+
+  private persistLoginAccount(toastNote?: string): void {
+    const email = this.loginState.email.trim();
+    const password = this.loginState.password;
+    if (!email || !password) return;
+    const { proxyUrl, proxyType } = this.getEffectiveLoginProxy();
+    const def = defaultServerForEmail(email);
+
+    this.store.addOrUpdateAccount({
+      id: this.loginState.editingAccountId ?? undefined,
+      email,
+      password,
+      displayName: this.loginState.displayName.trim(),
+      proxyUrl,
+      proxyType,
+      proxyToken: this.loginState.proxyToken.trim(),
+      server: {
+        imapHost: this.loginState.imapHost.trim() || def.imapHost,
+        imapPort: Number(this.loginState.imapPort) || 993,
+        imapTls: this.loginState.imapTls,
+        smtpHost: this.loginState.smtpHost.trim() || def.smtpHost,
+        smtpPort: Number(this.loginState.smtpPort) || 465,
+        smtpTls: this.loginState.smtpTls,
+      },
+    });
+    this.closeAllModals();
+    const loc = this.store.settings.locale;
+    this.store.pushToast(
+      toastNote ?? (loc === 'ja' ? `アカウント ${email} を保存しました` : `Saved account ${email}`),
+      'success',
+    );
+  }
+
+  private async handleLoginSubmit(): Promise<void> {
+    if (this.loginState.testing) return;
+    const email = this.loginState.email.trim();
+    const password = this.loginState.password;
+    if (!email || !password) return;
+
+    const loc = this.store.settings.locale;
+    const tempAcc = this.buildLoginCandidateAccount(email, password);
+
+    this.loginState.testing = true;
+    this.loginState.testStatus = {
+      kind: 'info',
+      message:
+        loc === 'ja'
+          ? `${tempAcc.server.imapHost}:${tempAcc.server.imapPort} へ接続確認中…`
+          : `Verifying login on ${tempAcc.server.imapHost}:${tempAcc.server.imapPort}…`,
+    };
+    this.renderModalSlot();
+
+    try {
+      const outcome = await testAccountConnectionWithPtrFallback(tempAcc, (stage, detail) => {
+        if (!this.loginState.open) return;
+        if (stage === 'dns') {
+          this.loginState.testStatus = {
+            kind: 'info',
+            message:
+              loc === 'ja'
+                ? `接続に失敗したため ${detail} の Aレコード → PTRレコードを照会中…`
+                : `Initial login failed. Resolving A → PTR record for ${detail}…`,
+          };
+          this.renderModalSlot();
+        } else if (stage === 'ptr_test') {
+          this.loginState.testStatus = {
+            kind: 'info',
+            message:
+              loc === 'ja'
+                ? `PTRレコード (${detail}) を IMAP/SMTP ホストに設定して接続テスト中…`
+                : `Testing IMAP/SMTP using PTR host ${detail}…`,
+          };
+          this.renderModalSlot();
+        }
       });
-      this.closeAllModals();
-      this.store.pushToast(
-        this.store.settings.locale === 'ja' ? `アカウント ${email} を保存しました` : `Saved account ${email}`,
-        'success',
-      );
+
+      if (!this.loginState.open) return;
+
+      if (outcome.ok) {
+        if (outcome.usedPtrFallback && outcome.ptrHost) {
+          this.loginState.imapHost = outcome.server.imapHost;
+          this.loginState.smtpHost = outcome.server.smtpHost;
+          this.loginState.serverTouched = true;
+        }
+        this.loginState.testing = false;
+        const note = outcome.usedPtrFallback && outcome.ptrHost
+          ? (loc === 'ja'
+              ? `PTRレコード (${outcome.ptrHost}) を自動設定して ${email} でログインしました`
+              : `Signed in to ${email} via auto-detected PTR host (${outcome.ptrHost})`)
+          : (loc === 'ja' ? `${email} でログインしました` : `Signed in to ${email}`);
+        this.persistLoginAccount(note);
+        return;
+      }
+
+      // Only adopt a failed PTR host if PTR actually reached IMAP auth while initial host failed transport
+      const initialReachedImap = /IMAP command failed|AUTH/i.test(outcome.initialError ?? '');
+      const ptrReachedImap = /IMAP command failed|AUTH/i.test(outcome.ptrError ?? '');
+      if (outcome.ptrHost && ptrReachedImap && !initialReachedImap) {
+        this.loginState.imapHost = outcome.ptrHost;
+        this.loginState.smtpHost = outcome.ptrHost;
+        this.loginState.serverTouched = true;
+      }
+
+      const ptrSummary = outcome.ptrHost
+        ? (loc === 'ja'
+            ? `\nAレコード (${outcome.aRecords.join(', ')}) → PTRホスト (${outcome.ptrHost}) を IMAP/SMTP に設定して再試行しましたが失敗: ${outcome.ptrError ?? '接続不可'}`
+            : `\nRetried with A (${outcome.aRecords.join(', ')}) → PTR host (${outcome.ptrHost}) for IMAP/SMTP, also failed: ${outcome.ptrError ?? 'unreachable'}`)
+        : outcome.aRecords.length > 0
+          ? (loc === 'ja'
+              ? `\nAレコード (${outcome.aRecords.join(', ')}) から有効な PTRレコードが見つかりませんでした。`
+              : `\nNo valid PTR record found for A record (${outcome.aRecords.join(', ')}).`)
+          : '';
+
+      this.loginState.testStatus = {
+        kind: 'error',
+        message: `${loc === 'ja' ? 'ログインに失敗しました' : 'Sign-in failed'}: ${outcome.initialError ?? 'Unknown error'}${ptrSummary}`,
+        allowSkipVerify: true,
+      };
+    } catch (err) {
+      this.loginState.testStatus = {
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+        allowSkipVerify: true,
+      };
+    } finally {
+      this.loginState.testing = false;
+      if (this.loginState.open) this.renderModalSlot();
     }
   }
 
   private async runConnectionTest(): Promise<void> {
-    const proxyUrl = this.loginState.proxyUrl.trim();
-    if (!proxyUrl || this.loginState.proxyType === 'local') {
-      this.loginState.testStatus = {
-        ok: true,
-        message:
-          this.store.settings.locale === 'ja'
-            ? 'ローカル／デモモードとして動作します（このまま保存可能です）。'
-            : 'Configured for Local / Offline mode (ready to save).',
-      };
-      this.renderModalSlot();
-      return;
-    }
+    if (this.loginState.testing) return;
+    const loc = this.store.settings.locale;
+    const { proxyUrl, proxyType } = this.getEffectiveLoginProxy();
 
     this.loginState.testing = true;
-    this.loginState.testStatus = null;
+    this.loginState.testStatus = {
+      kind: 'info',
+      message: loc === 'ja' ? 'プロキシおよびメールサーバーへ接続テスト中…' : 'Testing proxy & mail server connection…',
+    };
     this.renderModalSlot();
 
     try {
-      const health = await checkProxyHealth(proxyUrl, this.loginState.proxyType, this.loginState.proxyToken);
+      const health = await checkProxyHealth(proxyUrl, proxyType, this.loginState.proxyToken);
       if (!this.loginState.email.trim() || !this.loginState.password) {
         this.loginState.testStatus = {
-          ok: true,
-          message: `Proxy healthy (${health.engine ?? 'ok'}, CORS: ${health.cors ?? '*'}). Enter email & password to verify IMAP login.`,
+          kind: 'success',
+          message:
+            loc === 'ja'
+              ? `Cloudflare Proxy 接続 OK (${health.engine ?? 'ok'}, CORS: ${health.cors ?? '*'})。メールアドレスとパスワードを入力して接続テストを実行してください。`
+              : `Proxy healthy (${health.engine ?? 'ok'}, CORS: ${health.cors ?? '*'}). Enter email & password to verify IMAP login.`,
         };
       } else {
-        const tempAcc: MailAccount = {
-          id: 'test',
-          email: this.loginState.email.trim(),
-          password: this.loginState.password,
-          displayName: this.loginState.displayName,
-          proxyUrl,
-          proxyType: this.loginState.proxyType,
-          proxyToken: this.loginState.proxyToken,
-          server: {
-            imapHost: this.loginState.imapHost.trim(),
-            imapPort: Number(this.loginState.imapPort) || 993,
-            imapTls: this.loginState.imapTls,
-            smtpHost: this.loginState.smtpHost.trim(),
-            smtpPort: Number(this.loginState.smtpPort) || 465,
-            smtpTls: this.loginState.smtpTls,
-          },
-          signature: '',
-          avatarColor: '#1a73e8',
-          addedAt: new Date().toISOString(),
-        };
-        const testRes = await testAccountConnection(tempAcc);
-        const count = Array.isArray(testRes.mailboxes) ? testRes.mailboxes.length : 0;
-        this.loginState.testStatus = {
-          ok: true,
-          message: `IMAP OK (${health.engine ?? 'proxy'}) · ${count} mailboxes · ${testRes.latencyMs ?? 0}ms`,
-        };
+        const tempAcc = this.buildLoginCandidateAccount(this.loginState.email.trim(), this.loginState.password);
+        const outcome = await testAccountConnectionWithPtrFallback(tempAcc, (stage, detail) => {
+          if (!this.loginState.open) return;
+          if (stage === 'dns') {
+            this.loginState.testStatus = {
+              kind: 'info',
+              message:
+                loc === 'ja'
+                  ? `接続に失敗したため ${detail} の Aレコード → PTRレコードを取得中…`
+                  : `Initial test failed. Looking up A → PTR record for ${detail}…`,
+            };
+            this.renderModalSlot();
+          } else if (stage === 'ptr_test') {
+            this.loginState.testStatus = {
+              kind: 'info',
+              message:
+                loc === 'ja'
+                  ? `PTRホスト (${detail}) を IMAP/SMTP に設定して再テスト中…`
+                  : `Retesting IMAP/SMTP with PTR host (${detail})…`,
+            };
+            this.renderModalSlot();
+          }
+        });
+
+        if (outcome.ok && outcome.result) {
+          const count = Array.isArray(outcome.result.mailboxes) ? outcome.result.mailboxes.length : 0;
+          if (outcome.usedPtrFallback && outcome.ptrHost) {
+            this.loginState.imapHost = outcome.server.imapHost;
+            this.loginState.smtpHost = outcome.server.smtpHost;
+            this.loginState.serverTouched = true;
+            this.loginState.testStatus = {
+              kind: 'success',
+              message:
+                loc === 'ja'
+                  ? `Aレコード (${outcome.aRecords.join(', ')}) → PTRレコード (${outcome.ptrHost}) を IMAP/SMTP ホストに設定し接続成功！(${count} フォルダ · ${outcome.result.latencyMs ?? 0}ms)`
+                  : `Auto-resolved A (${outcome.aRecords.join(', ')}) → PTR (${outcome.ptrHost}) for IMAP/SMTP and connected! (${count} mailboxes · ${outcome.result.latencyMs ?? 0}ms)`,
+            };
+          } else {
+            this.loginState.testStatus = {
+              kind: 'success',
+              message: `IMAP OK (${health.engine ?? 'proxy'} · ${tempAcc.server.imapHost}) · ${count} mailboxes · ${outcome.result.latencyMs ?? 0}ms`,
+            };
+          }
+        } else {
+          const initialReachedImap = /IMAP command failed|AUTH/i.test(outcome.initialError ?? '');
+          const ptrReachedImap = /IMAP command failed|AUTH/i.test(outcome.ptrError ?? '');
+          if (outcome.ptrHost && ptrReachedImap && !initialReachedImap) {
+            this.loginState.imapHost = outcome.ptrHost;
+            this.loginState.smtpHost = outcome.ptrHost;
+            this.loginState.serverTouched = true;
+          }
+          const ptrDetail = outcome.ptrHost
+            ? (loc === 'ja'
+                ? ` / A (${outcome.aRecords.join(', ')}) → PTR (${outcome.ptrHost}) でも再試行しましたが失敗: ${outcome.ptrError ?? '接続不可'}`
+                : ` / Also retried A (${outcome.aRecords.join(', ')}) → PTR (${outcome.ptrHost}): ${outcome.ptrError ?? 'unreachable'}`)
+            : outcome.aRecords.length > 0
+              ? (loc === 'ja'
+                  ? ` / A (${outcome.aRecords.join(', ')}) に対応する PTRレコードなし`
+                  : ` / No PTR record found for A (${outcome.aRecords.join(', ')})`)
+              : '';
+          this.loginState.testStatus = {
+            kind: 'error',
+            message: `${outcome.initialError ?? 'Connection failed'}${ptrDetail}`,
+            allowSkipVerify: true,
+          };
+        }
       }
     } catch (err) {
       this.loginState.testStatus = {
-        ok: false,
+        kind: 'error',
         message: err instanceof Error ? err.message : String(err),
+        allowSkipVerify: true,
       };
     } finally {
       this.loginState.testing = false;
-      this.renderModalSlot();
+      if (this.loginState.open) this.renderModalSlot();
     }
   }
 
@@ -919,6 +1091,10 @@ export class NeonGmailApp {
 
       case 'test-login-connection':
         void this.runConnectionTest();
+        break;
+
+      case 'save-login-skip-verify':
+        this.persistLoginAccount();
         break;
 
       case 'open-settings':
