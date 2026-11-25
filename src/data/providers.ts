@@ -225,7 +225,8 @@ export function colorForString(seed: string): string {
 }
 
 export function initialsForName(name: string, email: string): string {
-  const clean = (name || email || '?').trim();
+  const stripped = (name || '').replace(/\s*[（(【\[][^）)】\]]*[）)】\]]/g, '').trim();
+  const clean = stripped || (name || email || '?').trim();
   const parts = clean.split(/\s+/).filter(Boolean);
   if (parts.length >= 2) {
     return `${parts[0]![0] ?? ''}${parts[1]![0] ?? ''}`.toUpperCase();
