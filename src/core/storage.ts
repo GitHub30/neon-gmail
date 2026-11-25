@@ -1,5 +1,4 @@
 import type { AppSettings, CustomLabel, MailAccount, MailMessage, ThemeMode } from '../types/mail.ts';
-import { createDefaultLabels, createDemoAccounts, createDemoMessages } from '../data/demoMailbox.ts';
 import { colorForString, defaultServerForEmail } from '../data/providers.ts';
 import { safeHexColor } from './sanitizer.ts';
 
@@ -10,6 +9,7 @@ export const STORAGE_KEYS = {
   SETTINGS: 'neon_gmail_settings_v1',
   LABELS: 'neon_gmail_labels_v1',
   MESSAGES_PREFIX: 'neon_gmail_msgs_v1_',
+  DEMO_PURGED: 'neon_gmail_no_demo_v2',
 } as const;
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -111,14 +111,49 @@ function normalizeMessage(raw: Partial<MailMessage>, accountId: string): MailMes
   };
 }
 
+const LEGACY_DEMO_IDS = new Set(['acc-demo-work', 'acc-demo-personal']);
+const LEGACY_DEMO_EMAILS = new Set(['alex.tanaka@neon-mail.dev', 'alex.private@neon-mail.dev']);
+const LEGACY_DEMO_LABEL_IDS = new Set(['lbl-work', 'lbl-finance', 'lbl-travel', 'lbl-security']);
+
+function isLegacyDemoAccount(a: Partial<MailAccount> | null | undefined): boolean {
+  if (!a) return false;
+  const id = String(a.id ?? '');
+  const email = String(a.email ?? '').toLowerCase();
+  return LEGACY_DEMO_IDS.has(id) || LEGACY_DEMO_EMAILS.has(email);
+}
+
+function purgeLegacyDemoDataOnce(): void {
+  try {
+    if (localStorage.getItem(STORAGE_KEYS.DEMO_PURGED) === '1') return;
+    const rawAccounts = safeReadJson<Partial<MailAccount>[]>(STORAGE_KEYS.ACCOUNTS);
+    if (Array.isArray(rawAccounts)) {
+      const realAccounts = rawAccounts.filter((a) => !isLegacyDemoAccount(a));
+      if (realAccounts.length !== rawAccounts.length) {
+        for (const a of rawAccounts) {
+          if (a?.id && isLegacyDemoAccount(a)) {
+            localStorage.removeItem(`${STORAGE_KEYS.MESSAGES_PREFIX}${a.id}`);
+          }
+        }
+        saveAccounts(realAccounts.map(normalizeAccount).filter((x): x is MailAccount => x !== null));
+      }
+    }
+    const rawLabels = safeReadJson<Partial<CustomLabel>[]>(STORAGE_KEYS.LABELS);
+    if (Array.isArray(rawLabels) && rawLabels.every((l) => l?.id && LEGACY_DEMO_LABEL_IDS.has(String(l.id)))) {
+      saveLabels([]);
+    }
+    localStorage.setItem(STORAGE_KEYS.DEMO_PURGED, '1');
+  } catch {
+    // ignore
+  }
+}
+
 export function loadAccounts(): MailAccount[] {
+  purgeLegacyDemoDataOnce();
   const stored = safeReadJson<Partial<MailAccount>[]>(STORAGE_KEYS.ACCOUNTS);
   if (Array.isArray(stored)) {
     return stored.map(normalizeAccount).filter((a): a is MailAccount => a !== null);
   }
-  const demos = createDemoAccounts();
-  saveAccounts(demos);
-  return demos;
+  return [];
 }
 
 export function saveAccounts(accounts: MailAccount[]): boolean {
@@ -175,13 +210,12 @@ export function saveSettings(settings: AppSettings): void {
 }
 
 export function loadLabels(): CustomLabel[] {
+  purgeLegacyDemoDataOnce();
   const stored = safeReadJson<Partial<CustomLabel>[]>(STORAGE_KEYS.LABELS);
   if (Array.isArray(stored)) {
     return stored.map(normalizeLabel).filter((l): l is CustomLabel => l !== null);
   }
-  const defaults = createDefaultLabels();
-  saveLabels(defaults);
-  return defaults;
+  return [];
 }
 
 export function saveLabels(labels: CustomLabel[]): void {
@@ -194,9 +228,7 @@ export function loadMessagesForAccount(account: MailAccount): MailMessage[] {
   if (Array.isArray(stored)) {
     return stored.map((m) => normalizeMessage(m, account.id)).filter((m): m is MailMessage => m !== null);
   }
-  const seed = account.isDemo ? createDemoMessages(account.id, account.email) : [];
-  saveMessagesForAccount(account.id, seed);
-  return seed;
+  return [];
 }
 
 export function saveMessagesForAccount(accountId: string, messages: MailMessage[]): boolean {

@@ -3,7 +3,6 @@ import { checkProxyHealth, testAccountConnection } from '../core/proxyClient.ts'
 import { escapeHtml, sanitizeEmailHtml, sanitizeFilename } from '../core/sanitizer.ts';
 import { exportAllBackup, importAllBackup, saveAccounts } from '../core/storage.ts';
 import { MailStore, type StoreChangeKind } from '../core/store.ts';
-import { createDemoAccounts, createDemoMessages } from '../data/demoMailbox.ts';
 import { defaultServerForEmail, detectProvider } from '../data/providers.ts';
 import type { InboxCategory, MailAccount, MailAttachment, ReadingPaneMode, SystemFolder } from '../types/mail.ts';
 import { renderComposeDock } from './ComposeModal.ts';
@@ -38,6 +37,7 @@ export class NeonGmailApp {
   private toastSlot!: HTMLElement;
 
   private sidebarCollapsed = false;
+  private moreFoldersExpanded = false;
   private accountMenuOpen = false;
   private advSearchOpen = false;
   private selectMenuOpen = false;
@@ -895,19 +895,10 @@ export class NeonGmailApp {
         this.store.signOutAll();
         break;
 
-      case 'load-demo-accounts': {
-        const demos = createDemoAccounts();
-        for (const d of demos) {
-          if (!this.store.accounts.some((a) => a.email === d.email)) {
-            this.store.accounts = [...this.store.accounts, d];
-            localStorage.setItem(`neon_gmail_msgs_v1_${d.id}`, JSON.stringify(createDemoMessages(d.id, d.email)));
-          }
-        }
-        saveAccounts(this.store.accounts);
-        if (demos[0]) this.store.switchAccount(demos[0].id);
-        this.closeAllModals();
+      case 'toggle-more-folders':
+        this.moreFoldersExpanded = !this.moreFoldersExpanded;
+        this.renderSidebarSlot();
         break;
-      }
 
       case 'close-login-modal':
       case 'close-settings-modal':
@@ -983,6 +974,13 @@ export class NeonGmailApp {
 
       case 'open-compose':
         this.store.sidebarOpenMobile = false;
+        if (!this.store.getActiveAccount()) {
+          this.openModalCleanup();
+          this.loginState = createInitialLoginState();
+          this.renderModalSlot();
+          this.modalSlot.querySelector<HTMLInputElement>('#login-email')?.focus();
+          break;
+        }
         this.store.openCompose();
         break;
 
@@ -1447,7 +1445,7 @@ export class NeonGmailApp {
 
   private renderSidebarSlot(isMobile = this.isMobileViewport()): void {
     const isMobileHidden = isMobile && !this.store.sidebarOpenMobile;
-    this.sidebarSlot.innerHTML = renderSidebar(this.store, isMobileHidden);
+    this.sidebarSlot.innerHTML = renderSidebar(this.store, isMobileHidden, this.moreFoldersExpanded);
   }
 
   private renderMainSlot(isMobile = this.isMobileViewport()): void {

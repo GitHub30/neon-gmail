@@ -264,7 +264,7 @@ export class MailStore {
         proxyToken: (input.proxyToken ?? existing.proxyToken ?? '').trim(),
         server,
         signature: input.signature ?? existing.signature,
-        isDemo: existing.isDemo && proxyType === 'local',
+        isDemo: false,
       };
       this.accounts = this.accounts.map((a) => (a.id === existing.id ? updated : a));
       saveAccounts(this.accounts);
@@ -283,42 +283,14 @@ export class MailStore {
       server,
       signature: input.signature ?? '',
       avatarColor: safeHexColor(colorForString(email)),
-      isDemo: proxyType === 'local',
+      isDemo: false,
       addedAt: new Date().toISOString(),
     };
     this.accounts = [...this.accounts, newAcc];
     saveAccounts(this.accounts);
-
-    const hasProxy = this.hasLiveProxy(newAcc);
-    const welcome: MailMessage = {
-      id: `welcome-${newAcc.id}`,
-      threadId: `thr-welcome-${newAcc.id}`,
-      accountId: newAcc.id,
-      fromName: 'Neon Gmail',
-      fromEmail: 'welcome@neon-mail.dev',
-      to: [newAcc.email],
-      cc: [],
-      subject: hasProxy
-        ? `接続準備完了: ${newAcc.email}`
-        : `アカウントを追加しました: ${newAcc.email}（ローカルモード）`,
-      snippet: hasProxy
-        ? '「更新・同期」ボタンを押すとIMAPサーバーから最新メールを取得します。'
-        : 'プロキシURLは後からアカウント設定で追加できます。メール作成・ラベル・検索をそのまま利用可能です。',
-      textBody: hasProxy
-        ? `${newAcc.displayName} さん\n\nアカウント (${newAcc.email}) を保存しました。\nプロキシ URL: ${proxyUrl}\nIMAP: ${server.imapHost}:${server.imapPort}\nSMTP: ${server.smtpHost}:${server.smtpPort}\n\nツールバーの更新ボタンをクリックしてメールを同期できます。`
-        : `${newAcc.displayName} さん\n\nアカウント (${newAcc.email}) を localStorage に保存しました。\n現在はローカルモードで動作しています。実メールサーバーと送受信したい場合は、アカウントメニューの「接続・プロキシ設定を編集」から Cloudflare Workers または proxy.php の URL を設定してください。`,
-      date: new Date().toISOString(),
-      isRead: false,
-      isStarred: false,
-      isImportant: true,
-      folder: 'inbox',
-      category: 'primary',
-      labels: [],
-      attachments: [],
-    };
-    saveMessagesForAccount(newAcc.id, [welcome]);
+    saveMessagesForAccount(newAcc.id, []);
     this.switchAccount(newAcc.id);
-    if (hasProxy) {
+    if (this.hasLiveProxy(newAcc)) {
       void this.syncActiveAccount();
     }
     return newAcc;

@@ -198,16 +198,51 @@ export function renderMessageList(store: MailStore, threads: MailThread[], ui: L
     : `id="mail-list-panel"`;
 
   if (pageThreads.length === 0) {
+    if (!activeAcc) {
+      return `
+        ${toolbarHtml}
+        ${categoryTabsHtml}
+        <div ${panelAttrs} class="empty-state empty-welcome">
+          <div class="empty-welcome-card">
+            <div class="empty-welcome-icon">${icons.brandLogo}</div>
+            <h2 class="empty-welcome-title">${loc === 'ja' ? 'メールアカウントにログイン' : 'Sign in to your mail account'}</h2>
+            <p class="empty-welcome-desc">${
+              loc === 'ja'
+                ? 'メールアドレスとパスワードでアカウントを追加してください。Cloudflare Workers や proxy.php のプロキシ URL を指定すると IMAP / SMTP サーバーと直接送受信できます。'
+                : 'Add an email account with your email address and password. Provide an optional Cloudflare Workers or proxy.php URL to sync directly over IMAP and SMTP.'
+            }</p>
+            <div class="empty-welcome-actions">
+              <button type="button" class="btn btn-primary" data-action="open-login">
+                ${icons.userPlus}
+                <span>${loc === 'ja' ? 'アカウントを追加してログイン' : 'Add account & sign in'}</span>
+              </button>
+              <button type="button" class="btn" data-action="open-settings">
+                ${icons.cloud}
+                <span>${loc === 'ja' ? 'プロキシ設定・ダウンロード' : 'Proxy setup & downloads'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     return `
       ${toolbarHtml}
       ${categoryTabsHtml}
       ${trashBannerHtml}
       <div ${panelAttrs} class="empty-state">
-        ${icons.inbox}
-        <p>${escapeHtml(store.searchQuery ? store.tr('noSearchResults') : store.tr('noMessages'))}</p>
+        <div class="empty-state-icon">${icons.inbox}</div>
+        <p class="empty-state-title">${escapeHtml(store.searchQuery ? store.tr('noSearchResults') : store.tr('noMessages'))}</p>
         ${
-          !activeAcc
-            ? `<button type="button" class="btn btn-primary" data-action="open-login">${escapeHtml(store.tr('loginTitle'))}</button>`
+          !store.searchQuery && store.activeFolder === 'inbox'
+            ? `<div class="empty-welcome-actions">
+                ${
+                  store.hasLiveProxy(activeAcc)
+                    ? `<button type="button" class="btn btn-primary" data-action="sync-mail">${icons.refresh}<span>${escapeHtml(store.tr('refresh'))}</span></button>`
+                    : `<button type="button" class="btn" data-action="edit-active-account">${icons.cloud}<span>${loc === 'ja' ? 'プロキシ URL を設定して受信' : 'Configure Proxy URL to sync mail'}</span></button>`
+                }
+                <button type="button" class="btn" data-action="open-compose">${icons.compose}<span>${escapeHtml(store.tr('compose'))}</span></button>
+              </div>`
             : ''
         }
       </div>

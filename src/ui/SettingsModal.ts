@@ -112,7 +112,6 @@ export function renderSettingsModal(store: MailStore, isOpen: boolean): string {
               <span>${loc === 'ja' ? 'バックアップを復元' : 'Import JSON Backup'}</span>
               <input type="file" accept="application/json" class="sr-only" id="import-backup-input" />
             </label>
-            <button type="button" class="btn btn-sm" data-action="load-demo-accounts">${loc === 'ja' ? 'デモデータを再読み込み' : 'Restore Demo Accounts'}</button>
           </div>
         </div>
 

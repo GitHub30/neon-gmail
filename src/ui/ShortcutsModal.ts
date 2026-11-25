@@ -104,26 +104,28 @@ export function renderNewLabelModal(store: MailStore, isOpen: boolean): string {
           <h2 id="new-label-title">${escapeHtml(store.tr('newLabel'))}</h2>
           <button type="button" class="icon-btn" aria-label="${escapeHtml(store.tr('close'))}" data-action="close-new-label">${icons.close}</button>
         </div>
-        <form id="new-label-form" class="modal-body">
-          <div class="form-group">
-            <label for="new-label-name">${loc === 'ja' ? 'ラベル名' : 'Label name'}</label>
-            <input id="new-label-name" name="name" class="field-input" type="text" required maxlength="32" placeholder="${loc === 'ja' ? '例: 重要クライアント' : 'e.g. Important Clients'}" />
-          </div>
-          <fieldset class="color-radio-fieldset">
-            <legend>${loc === 'ja' ? 'カラー' : 'Color'}</legend>
-            <div style="display:flex;gap:10px;flex-wrap:wrap;">
-              ${LABEL_COLORS.map(
-                (color, i) => `
-                <label class="color-radio-option">
-                  <input type="radio" name="color" value="${color.hex}" ${i === 0 ? 'checked' : ''} aria-label="${loc === 'ja' ? color.ja : color.en}" />
-                  <span class="label-dot" aria-hidden="true" style="background:${color.hex};width:18px;height:18px;"></span>
-                  <span class="sr-only">${loc === 'ja' ? color.ja : color.en}</span>
-                </label>
-              `,
-              ).join('')}
+        <form id="new-label-form" class="modal-form">
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="new-label-name">${loc === 'ja' ? 'ラベル名' : 'Label name'}</label>
+              <input id="new-label-name" name="name" class="field-input" type="text" required maxlength="32" placeholder="${loc === 'ja' ? '例: 重要クライアント' : 'e.g. Important Clients'}" />
             </div>
-          </fieldset>
-          <div class="modal-footer" style="margin:6px -20px -18px;">
+            <fieldset class="color-radio-fieldset">
+              <legend>${loc === 'ja' ? 'カラー' : 'Color'}</legend>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                ${LABEL_COLORS.map(
+                  (color, i) => `
+                  <label class="color-radio-option">
+                    <input type="radio" name="color" value="${color.hex}" ${i === 0 ? 'checked' : ''} aria-label="${loc === 'ja' ? color.ja : color.en}" />
+                    <span class="label-dot" aria-hidden="true" style="background:${color.hex};width:18px;height:18px;"></span>
+                    <span class="sr-only">${loc === 'ja' ? color.ja : color.en}</span>
+                  </label>
+                `,
+                ).join('')}
+              </div>
+            </fieldset>
+          </div>
+          <div class="modal-footer">
             <button type="button" class="btn" data-action="close-new-label">${escapeHtml(store.tr('cancel'))}</button>
             <button type="submit" class="btn btn-primary">${escapeHtml(store.tr('save'))}</button>
           </div>

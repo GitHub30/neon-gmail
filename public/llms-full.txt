@@ -12,7 +12,7 @@ Neon Gmail is a static, client-side Progressive Web Application (PWA) hosted on 
 2. **PHP Proxy** (`public/proxies/proxy.php`): Single-file, zero-dependency PHP 8+ script using `stream_socket_client` and `stream_socket_enable_crypto` (does not require `ext-imap`). Supports both path routing (`/api/imap/messages`) and query routing (`?action=imap_messages`) for shared web hosts.
 3. **Node.js Proxy** (`public/proxies/proxy-node.mjs`): Zero-dependency Node.js 20+ ESM server using `node:net`, `node:tls`, and `node:http`.
 
-Without a proxy configured, Neon Gmail runs immediately in **Local / Demo Mode** with rich multilingual threaded conversations so users can explore every Gmail feature offline.
+Without a proxy configured, Neon Gmail runs cleanly in **Local / Offline Mode** with zero fake test data, letting you manage accounts, drafts, labels, and settings offline and attach an IMAP/SMTP proxy URL whenever ready.
 
 ## 2. Implemented Gmail Features
 

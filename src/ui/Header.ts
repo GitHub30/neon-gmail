@@ -36,9 +36,9 @@ export function renderHeader(store: MailStore, ui: HeaderUiState): string {
       </button>
     `
     : `
-      <button type="button" id="sign-in-header-btn" class="btn btn-primary" data-action="open-login">
+      <button type="button" id="sign-in-header-btn" class="btn btn-primary sign-in-header-btn" data-action="open-login">
         ${icons.userPlus}
-        <span>${escapeHtml(store.tr('loginTitle'))}</span>
+        <span class="sign-in-header-label">${loc === 'ja' ? 'ログイン' : 'Sign in'}</span>
       </button>
     `;
 
@@ -224,7 +224,7 @@ export function renderHeader(store: MailStore, ui: HeaderUiState): string {
       <div class="header-right">
         ${
           ui.canInstallPwa
-            ? `<button type="button" id="pwa-install-btn" class="btn btn-sm" data-action="install-pwa">${icons.download}<span>${escapeHtml(store.tr('installApp'))}</span></button>`
+            ? `<button type="button" id="pwa-install-btn" class="icon-btn" aria-label="${escapeHtml(store.tr('installApp'))}" title="${escapeHtml(store.tr('installApp'))}" data-action="install-pwa">${icons.download}</button>`
             : ''
         }
         <button
