@@ -1,0 +1,7 @@
+name = "neon-gmail-proxy"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[vars]
+# Optional: set via `wrangler secret put PROXY_AUTH_TOKEN` to require X-Proxy-Token header
+ALLOW_CUSTOM_PORTS = "false"

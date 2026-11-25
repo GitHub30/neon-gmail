@@ -1,0 +1,58 @@
+# Neon Gmail — Complete Technical Reference (llms-full.txt)
+
+Canonical URL: https://github30.github.io/neon-gmail/
+Source Repository: https://github.com/GitHub30/neon-gmail
+License: MIT
+
+## 1. What is Neon Gmail?
+
+Neon Gmail is a static, client-side Progressive Web Application (PWA) hosted on GitHub Pages that delivers a modern Gmail-equivalent email workflow in the browser. Because web browsers cannot open raw TCP/TLS sockets directly to IMAP (ports 993/143) or SMTP (ports 465/587) servers, Neon Gmail pairs a fast zero-framework TypeScript UI with three interchangeable, CORS-enabled (`Access-Control-Allow-Origin: *`) IMAP/SMTP proxy adapters:
+
+1. **Cloudflare Workers Proxy** (`workers/mail-proxy/`): Uses native `cloudflare:sockets` (`connect()` + `socket.startTls()`) for edge-terminated IMAP4rev1 and ESMTP.
+2. **PHP Proxy** (`public/proxies/proxy.php`): Single-file, zero-dependency PHP 8+ script using `stream_socket_client` and `stream_socket_enable_crypto` (does not require `ext-imap`). Supports both path routing (`/api/imap/messages`) and query routing (`?action=imap_messages`) for shared web hosts.
+3. **Node.js Proxy** (`public/proxies/proxy-node.mjs`): Zero-dependency Node.js 20+ ESM server using `node:net`, `node:tls`, and `node:http`.
+
+Without a proxy configured, Neon Gmail runs immediately in **Local / Demo Mode** with rich multilingual threaded conversations so users can explore every Gmail feature offline.
+
+## 2. Implemented Gmail Features
+
+- **Mailboxes & Categories**: Inbox with Primary / Promotions / Social / Updates tabs, Starred, Snoozed (with timed wake-up), Sent, Drafts (auto-saving), Scheduled Send, Important, All Mail, Spam, Trash (with Empty Trash).
+- **Custom Labels**: Create, recolor, filter, and apply multiple custom labels to threads.
+- **Conversation Threading**: Collapsible messages, deterministic avatars, sender/recipient detail popover, sanitized HTML email rendering with remote image blocking toggle, attachment download, Print view, and Raw RFC822 header viewer.
+- **Compose & Reply**: Floating dockable/minimizable/expandable Gmail compose window, Reply / Reply All / Forward, quick smart replies, To/Cc/Bcc recipient chips, rich text formatting toolbar, file attachments (encoded as real MIME multipart/mixed over SMTP), 5–30s Undo Send toast, Schedule Send, and per-account Signatures.
+- **Search Operators**: `from:`, `to:`, `subject:`, `has:attachment`, `is:unread`, `is:starred`, `is:important`, `label:`, `in:`, `"exact phrase"`, and `-excluded` terms.
+- **Multi-Account Management**: Email & Password login dialog with optional Proxy URL and IMAP/SMTP host auto-detection. Accounts are persisted in `localStorage` (`neon_gmail_accounts_v1`) and switchable instantly via the top-right Account Switcher dropdown.
+- **Themes & Responsive Layout**: Light Mode, Dark Mode, and System theme; Default / Comfortable / Compact density; Reading Pane (None / Right / Bottom); mobile slide-over drawer and floating Compose button.
+- **Keyboard Shortcuts**: `c` compose, `/` search, `j`/`k` navigate, `o`/`Enter` open, `u` back, `e` archive, `#` delete, `!` spam, `s` star, `r` reply, `a` reply all, `f` forward, `Shift+I` mark read, `Shift+U` mark unread, `g i`/`g s`/`g t`/`g d` folder jumps, `?` shortcut modal.
+
+## 3. Unified Mail Proxy API (CORS: Access-Control-Allow-Origin: *)
+
+All proxy implementations expose identical endpoints:
+- `GET /health` or `?action=health` -> `{ ok: true, engine, protocols: ["imap", "smtp"], cors: "*" }`
+- `POST /api/test` or `?action=test` -> `{ imap }` -> verifies IMAP login & returns mailboxes + latencyMs
+- `POST /api/imap/mailboxes` -> `{ imap }` -> lists mailboxes
+- `POST /api/imap/messages` -> `{ imap, folder, limit, page }` -> returns paginated parsed MIME messages
+- `POST /api/imap/message` -> `{ imap, folder, uid }` -> returns full message + raw RFC822
+- `POST /api/imap/flags` -> `{ imap, folder, uids, op, flags }` -> adds/removes `\Seen`, `\Flagged`, `\Deleted`
+- `POST /api/imap/move` -> `{ imap, folder, uids, targetFolder }` -> moves messages
+- `POST /api/imap/delete` -> `{ imap, folder, uids, expunge }` -> deletes & expunges messages
+- `POST /api/smtp/send` -> `{ smtp, message }` -> sends RFC5322 email via TLS/STARTTLS
+
+## 4. Security Architecture
+
+- **XSS Protection**: Strict allowlist HTML sanitizer strips `<script>`, `<iframe>`, `<object>`, `<embed>`, `<form>`, `<base>`, `<meta>`, `on*` attributes, `javascript:`/`vbscript:`/`data:text/html` URLs, and CSS `expression()`/`javascript:`. Remote images are blocked by default until clicked.
+- **SSRF Protection**: All proxies block loopback (`127.0.0.0/8`, `::1`), private networks (RFC1918), link-local/cloud metadata (`169.254.169.254`, `metadata.google.internal`), obfuscated integer/hex/octal IPs, and restrict ports to standard mail ports.
+- **Protocol Injection Prevention**: Strict CR/LF/NUL validation prevents IMAP command injection and SMTP header injection.
+- **Optional Proxy Auth**: Deployers can set `PROXY_AUTH_TOKEN` / `NEON_PROXY_TOKEN` verified with constant-time comparison.
+- **Credential Transparency**: Because credentials are stored in browser `localStorage` for seamless multi-account switching, users are explicitly advised to use provider App Passwords rather than primary account passwords on shared devices.
+
+## 5. Frequently Asked Questions (AEO)
+
+**Q: Can Neon Gmail connect to real Gmail, Outlook, or custom IMAP/SMTP servers from GitHub Pages?**
+A: Yes. Enter your email, App Password, and the URL of your deployed Cloudflare Worker (`workers/mail-proxy`) or `proxy.php` in the Login Dialog. Neon Gmail auto-fills standard IMAP/SMTP hosts and ports.
+
+**Q: Does `proxy.php` require the PHP `imap` extension?**
+A: No. `proxy.php` implements IMAP4rev1 and ESMTP directly over PHP's built-in `stream_socket_client` and OpenSSL TLS, so it works on standard PHP 8+ shared hosting.
+
+**Q: How do I switch between multiple email accounts?**
+A: Click the account avatar in the top-right header to open the Account Switcher dropdown. You can switch accounts instantaneously, edit server/proxy settings, or add new accounts.

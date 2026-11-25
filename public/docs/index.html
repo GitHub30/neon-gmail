@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Neon Gmail ドキュメント・FAQ | Cloudflare Workers / proxy.php IMAP・SMTP 接続ガイド</title>
+  <meta name="description" content="Neon Gmailのセットアップ手順、Cloudflare Workers・proxy.php・Node.jsによるIMAP/SMTPプロキシ接続、CORS対応、セキュリティ設計、FAQを解説する公式ドキュメント。" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="referrer" content="no-referrer" />
+  <link rel="canonical" href="https://github30.github.io/neon-gmail/docs/" />
+  <link rel="icon" href="../favicon.ico" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="Neon Gmail 公式ドキュメント・FAQ" />
+  <meta property="og:description" content="Cloudflare Workers・proxy.php・Node.js で CORS 対応 IMAP/SMTP 接続を行うセットアップガイド。" />
+  <meta property="og:url" content="https://github30.github.io/neon-gmail/docs/" />
+  <meta property="og:image" content="https://github30.github.io/neon-gmail/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "プロキシ URL を設定しなくても使えますか？",
+        "acceptedAnswer": { "@type": "Answer", "text": "はい。プロキシ URL はオプションです。空欄のままログインまたはデモアカウントを選択すると、ブラウザ内ローカルモードで全機能を即座に試せます。" }
+      },
+      {
+        "@type": "Question",
+        "name": "アカウント情報はどこに保存されますか？",
+        "acceptedAnswer": { "@type": "Answer", "text": "メールアドレス・パスワード・プロキシ URL・設定はブラウザの localStorage に保存されます。共有端末ではアプリパスワードのご利用とログアウトを推奨します。" }
+      },
+      {
+        "@type": "Question",
+        "name": "複数アカウントの切り替え方法は？",
+        "acceptedAnswer": { "@type": "Answer", "text": "画面右上のアカウントアイコンをクリックするとドロップダウンが開き、登録済みアカウントをワンクリックで切り替えられます。" }
+      }
+    ]
+  }
+  </script>
+  <style>
+    :root { --bg:#f6f8fc; --card:#fff; --ink:#1f1f1f; --muted:#444746; --accent:#0b57d0; --border:#dde3ea; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#111317; --card:#1b1e24; --ink:#e8eaed; --muted:#b8bec7; --accent:#8ab4f8; --border:#2e333d; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; background:var(--bg); color:var(--ink); }
+    header, main, footer { max-width: 900px; margin: 0 auto; padding: 24px 20px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 24px; margin-bottom: 20px; }
+    h1 { font-size: 1.9rem; margin: 0 0 8px; }
+    h2 { font-size: 1.3rem; margin: 0 0 12px; }
+    a { color: var(--accent); }
+    pre { overflow-x: auto; padding: 14px; border-radius: 10px; background: rgba(127,127,127,.1); font-size: 0.9rem; }
+    .nav-back { display:inline-block; margin-bottom:14px; font-weight:600; text-decoration:none; }
+    dt { font-weight: 700; margin-top: 14px; }
+    dd { margin: 4px 0 0 0; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="nav-back" href="../">&larr; Neon Gmail アプリへ戻る</a>
+    <h1>Neon Gmail 公式ドキュメント &amp; FAQ</h1>
+    <p>ブラウザで動くモダンな Gmail 互換 Web メールクライアント（IMAP/SMTP プロキシ・PWA・ライト/ダーク・複数アカウント切替対応）。</p>
+  </header>
+  <main>
+    <section class="card">
+      <h2>1. Cloudflare Workers プロキシのデプロイ</h2>
+      <p>Cloudflare Workers の <code>cloudflare:sockets</code> を利用し、TLS/STARTTLS による IMAP・SMTP 通信を CORS 対応（<code>Access-Control-Allow-Origin: *</code>）REST API として提供します。</p>
+      <pre><code>git clone https://github.com/GitHub30/neon-gmail.git
+cd neon-gmail/workers/mail-proxy
+npm install
+npx wrangler login
+npx wrangler deploy</code></pre>
+      <p>発行された <code>https://neon-gmail-proxy.&lt;subdomain&gt;.workers.dev</code> をログインダイアログの「プロキシ URL」に入力してください。</p>
+    </section>
+
+    <section class="card">
+      <h2>2. proxy.php での接続（共有レンタルサーバー対応）</h2>
+      <p>PHP 8.0 以上のサーバーへ <a href="../proxies/proxy.php" download>proxy.php</a> を1ファイル設置するだけで利用できます（<code>php-imap</code>・<code>mbstring</code> 拡張不要）。</p>
+      <pre><code>curl -i https://your-domain.example/proxy.php?action=health</code></pre>
+    </section>
+
+    <section class="card">
+      <h2>3. Node.js スタンドアロンプロキシ（proxy-node.mjs）</h2>
+      <p>VPS や Docker 環境では Node.js 20+ のみで起動できます。</p>
+      <pre><code>HOST=0.0.0.0 PORT=8787 node proxy-node.mjs</code></pre>
+    </section>
+
+    <section class="card">
+      <h2>4. よくある質問（FAQ）</h2>
+      <dl>
+        <dt>プロキシ URL を設定しなくても使えますか？</dt>
+        <dd>はい。プロキシ URL はオプションです。空欄のままログインまたはデモアカウントを選択すると、ブラウザ内ローカルモードで全機能を即座に試せます。</dd>
+        <dt>アカウント情報はどこに保存されますか？</dt>
+        <dd>メールアドレス・パスワード・プロキシ URL・設定はブラウザの <code>localStorage</code> に保存されます。共有端末ではアプリパスワードのご利用とログアウトを推奨します。</dd>
+        <dt>複数アカウントの切り替え方法は？</dt>
+        <dd>画面右上のアカウントアイコンをクリックするとドロップダウンが開き、登録済みアカウントをワンクリックで切り替えられます。</dd>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>5. AI・機械可読エンドポイント（GEO / AIO / LLMO）</h2>
+      <ul>
+        <li><a href="../llms.txt">llms.txt</a> / <a href="../llms-full.txt">llms-full.txt</a></li>
+        <li><a href="../capabilities.json">capabilities.json</a></li>
+        <li><a href="../openapi.json">openapi.json</a></li>
+        <li><a href="../.well-known/ai-plugin.json">.well-known/ai-plugin.json</a></li>
+        <li><a href="../.well-known/ard.json">.well-known/ard.json</a></li>
+      </ul>
+    </section>
+  </main>
+  <footer>
+    <p>&copy; Neon Gmail &middot; <a href="https://github.com/GitHub30/neon-gmail">GitHub Repository</a></p>
+  </footer>
+</body>
+</html>

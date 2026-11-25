@@ -1,0 +1,230 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Neon Gmail Unified IMAP/SMTP Proxy API",
+    "version": "1.0.0",
+    "description": "CORS-enabled (Access-Control-Allow-Origin: *) HTTP JSON bridge to IMAP4rev1 and ESMTP servers implemented with full 9-endpoint parity across Cloudflare Workers, proxy.php, and proxy-node.mjs."
+  },
+  "components": {
+    "securitySchemes": {
+      "ProxyToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Proxy-Token",
+        "description": "Optional shared secret when PROXY_AUTH_TOKEN / NEON_PROXY_TOKEN is configured on the proxy."
+      }
+    },
+    "schemas": {
+      "MailServerCredentials": {
+        "type": "object",
+        "required": ["host", "port", "username", "password"],
+        "properties": {
+          "host": { "type": "string", "example": "imap.gmail.com" },
+          "port": { "type": "integer", "minimum": 1, "maximum": 65535, "example": 993 },
+          "tls": { "type": "string", "enum": ["tls", "starttls", "none"], "default": "tls" },
+          "username": { "type": "string", "format": "email" },
+          "password": { "type": "string", "format": "password" }
+        }
+      },
+      "OutgoingEmail": {
+        "type": "object",
+        "required": ["fromEmail", "to", "subject", "textBody"],
+        "properties": {
+          "fromName": { "type": "string" },
+          "fromEmail": { "type": "string", "format": "email" },
+          "to": { "type": "array", "items": { "type": "string", "format": "email" } },
+          "cc": { "type": "array", "items": { "type": "string", "format": "email" } },
+          "bcc": { "type": "array", "items": { "type": "string", "format": "email" } },
+          "subject": { "type": "string" },
+          "textBody": { "type": "string" },
+          "htmlBody": { "type": "string" },
+          "inReplyTo": { "type": "string" },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["filename", "contentType", "dataBase64"],
+              "properties": {
+                "filename": { "type": "string" },
+                "contentType": { "type": "string" },
+                "dataBase64": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Check proxy health and CORS headers",
+        "responses": { "200": { "description": "Proxy is healthy" } }
+      }
+    },
+    "/api/test": {
+      "post": {
+        "summary": "Verify IMAP credentials, return server greeting, mailboxes, and latency",
+        "security": [{}, { "ProxyToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["imap"], "properties": { "imap": { "$ref": "#/components/schemas/MailServerCredentials" } } } } }
+        },
+        "responses": { "200": { "description": "IMAP login succeeded" }, "400": { "description": "Connection or auth error" }, "413": { "description": "Payload exceeds 15 MB" } }
+      }
+    },
+    "/api/imap/mailboxes": {
+      "post": {
+        "summary": "List available IMAP mailboxes and special-use flags",
+        "security": [{}, { "ProxyToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["imap"], "properties": { "imap": { "$ref": "#/components/schemas/MailServerCredentials" } } } } }
+        },
+        "responses": { "200": { "description": "Mailbox list returned" } }
+      }
+    },
+    "/api/imap/messages": {
+      "post": {
+        "summary": "Fetch paginated parsed MIME messages from an IMAP folder",
+        "security": [{}, { "ProxyToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["imap"],
+                "properties": {
+                  "imap": { "$ref": "#/components/schemas/MailServerCredentials" },
+                  "folder": { "type": "string", "default": "INBOX" },
+                  "limit": { "type": "integer", "default": 30, "maximum": 60 },
+                  "page": { "type": "integer", "default": 1, "minimum": 1 }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Messages fetched" } }
+      }
+    },
+    "/api/imap/message": {
+      "post": {
+        "summary": "Fetch full message body, attachments, and raw RFC822 source by UID",
+        "security": [{}, { "ProxyToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["imap", "uid"],
+                "properties": {
+                  "imap": { "$ref": "#/components/schemas/MailServerCredentials" },
+                  "folder": { "type": "string", "default": "INBOX" },
+                  "uid": { "type": "integer", "minimum": 1 }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Message returned" }, "404": { "description": "Message not found" } }
+      }
+    },
+    "/api/imap/flags": {
+      "post": {
+        "summary": "Add or remove IMAP flags (\\Seen, \\Flagged, \\Deleted)",
+        "security": [{}, { "ProxyToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["imap", "uids", "op", "flags"],
+                "properties": {
+                  "imap": { "$ref": "#/components/schemas/MailServerCredentials" },
+                  "folder": { "type": "string", "default": "INBOX" },
+                  "uids": { "type": "array", "items": { "type": "integer" } },
+                  "op": { "type": "string", "enum": ["add", "remove"] },
+                  "flags": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Flags updated" } }
+      }
+    },
+    "/api/imap/move": {
+      "post": {
+        "summary": "Move messages to target IMAP folder",
+        "security": [{}, { "ProxyToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["imap", "uids", "targetFolder"],
+                "properties": {
+                  "imap": { "$ref": "#/components/schemas/MailServerCredentials" },
+                  "folder": { "type": "string", "default": "INBOX" },
+                  "uids": { "type": "array", "items": { "type": "integer" } },
+                  "targetFolder": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Messages moved" } }
+      }
+    },
+    "/api/imap/delete": {
+      "post": {
+        "summary": "Mark messages deleted and expunge (UID EXPUNGE with fallback)",
+        "security": [{}, { "ProxyToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["imap", "uids"],
+                "properties": {
+                  "imap": { "$ref": "#/components/schemas/MailServerCredentials" },
+                  "folder": { "type": "string", "default": "INBOX" },
+                  "uids": { "type": "array", "items": { "type": "integer" } },
+                  "expunge": { "type": "boolean", "default": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Messages deleted" } }
+      }
+    },
+    "/api/smtp/send": {
+      "post": {
+        "summary": "Send RFC5322 email with optional HTML and attachments via SMTP TLS/STARTTLS",
+        "security": [{}, { "ProxyToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["smtp", "message"],
+                "properties": {
+                  "smtp": { "$ref": "#/components/schemas/MailServerCredentials" },
+                  "message": { "$ref": "#/components/schemas/OutgoingEmail" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Message accepted by SMTP server" } }
+      }
+    }
+  }
+}

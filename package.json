@@ -1,0 +1,24 @@
+{
+  "name": "neon-gmail",
+  "version": "1.0.0",
+  "description": "Modern Gmail-inspired browser mail client with IMAP/SMTP proxy support (Cloudflare Workers, proxy.php, Node.js), multi-account switching, PWA, and Light/Dark themes.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && npm run build:worker-bundle && vite build",
+    "build:worker-bundle": "node scripts/bundle-worker.mjs",
+    "preview": "vite preview --port 4173",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint:php": "php -l public/proxies/proxy.php"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "@types/node": "^26.6.7",
+    "esbuild": "^0.25.0",
+    "jsdom": "^26.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^5.1.1"
+  }
+}

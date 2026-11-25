@@ -1,0 +1,16 @@
+{
+  "entries": [
+    {
+      "identifier": "urn:air:github30.github.io:neon-gmail:webmail",
+      "displayName": "Neon Gmail — Modern Webmail Client",
+      "description": "Gmail-compatible browser email client with CORS-enabled IMAP/SMTP proxies (Cloudflare Workers, proxy.php, Node.js), multi-account localStorage switching, Light/Dark themes, and offline PWA.",
+      "type": "application/ai-catalog+json",
+      "url": "https://github30.github.io/neon-gmail/capabilities.json",
+      "representativeQueries": [
+        "Connect to Gmail, Outlook, or custom IMAP and SMTP servers from a static web app using Cloudflare Workers or proxy.php",
+        "Switch between multiple email accounts saved in browser localStorage using a Gmail-style account dropdown",
+        "Compose, reply, snooze, label, archive, and search emails with Gmail operators offline in a Light/Dark PWA"
+      ]
+    }
+  ]
+}

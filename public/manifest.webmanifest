@@ -1,0 +1,58 @@
+{
+  "id": "./",
+  "name": "Neon Gmail — Modern Webmail Client",
+  "short_name": "Neon Gmail",
+  "description": "Gmail-style modern webmail client with IMAP/SMTP proxy support (Cloudflare Workers, proxy.php, Node.js), multi-account switching, offline PWA, and Light/Dark themes.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f6f8fc",
+  "theme_color": "#f6f8fc",
+  "lang": "ja",
+  "dir": "ltr",
+  "categories": ["productivity", "communication", "utilities"],
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "新規作成 / Compose",
+      "short_name": "Compose",
+      "description": "Open a new email draft immediately",
+      "url": "./?compose=1",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "受信トレイ / Inbox",
+      "short_name": "Inbox",
+      "description": "Jump straight to Inbox",
+      "url": "./?folder=inbox",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "スター付き / Starred",
+      "short_name": "Starred",
+      "description": "View starred threads",
+      "url": "./?folder=starred",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}

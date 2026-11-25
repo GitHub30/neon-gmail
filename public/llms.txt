@@ -1,0 +1,25 @@
+# Neon Gmail
+
+> Modern Gmail-inspired browser webmail client deployed on GitHub Pages, featuring full IMAP/SMTP connectivity through CORS-enabled Cloudflare Workers, `proxy.php`, and Node.js proxies, multi-account dropdown switching, localStorage persistence, Light/Dark themes, mobile responsiveness, and offline PWA support.
+
+## Core URLs
+
+- [Web App](https://github30.github.io/neon-gmail/): Launch Neon Gmail directly in the browser.
+- [Documentation & FAQ](https://github30.github.io/neon-gmail/docs/): Complete setup guide, proxy deployment steps, security architecture, and FAQ.
+- [Full LLM Reference](https://github30.github.io/neon-gmail/llms-full.txt): Extended technical specification, API contract, keyboard shortcuts, and citable facts.
+- [Capabilities JSON](https://github30.github.io/neon-gmail/capabilities.json): Machine-readable capability and protocol catalog.
+- [OpenAPI 3.1 Spec](https://github30.github.io/neon-gmail/openapi.json): Unified REST API specification for all IMAP/SMTP proxy backends.
+
+## Proxy Downloads
+
+- [Cloudflare Worker Bundle](https://github30.github.io/neon-gmail/proxies/cloudflare-worker.js): `cloudflare:sockets` TCP/TLS IMAP + SMTP CORS proxy.
+- [PHP Proxy (`proxy.php`)](https://github30.github.io/neon-gmail/proxies/proxy.php): Zero-dependency PHP 8+ IMAP + SMTP CORS proxy (no `ext-imap` required).
+- [Node.js Proxy (`proxy-node.mjs`)](https://github30.github.io/neon-gmail/proxies/proxy-node.mjs): Zero-dependency Node 20+ ESM IMAP + SMTP CORS proxy.
+
+## Key Capabilities
+
+- Gmail-grade UX: Inbox category tabs (Primary, Promotions, Social, Updates), Starred, Snoozed, Sent, Drafts (auto-save), Scheduled Send, Important, All Mail, Spam, Trash, Custom Labels, Threaded Conversations, Undo Send, Reading Pane, Rich Text Compose, File Attachments, Advanced Search (`from:`, `to:`, `subject:`, `has:attachment`, `is:unread`, `is:starred`, `label:`, `in:`), and Keyboard Shortcuts (`?`).
+- Email + Password Login Dialog with optional Proxy URL and provider auto-detection (Gmail, Outlook, Yahoo, iCloud, Fastmail, Zoho, Sakura, Xserver, Lolipop, ConoHa, Custom).
+- Multi-account storage in `localStorage` with instant top-right dropdown account switching.
+- Full CORS (`Access-Control-Allow-Origin: *`) and SSRF-hardened IMAP/SMTP proxies.
+- Light Mode, Dark Mode, and System theme with WCAG AA/AAA contrast and Lighthouse 100 across Performance, Accessibility, Best Practices, and SEO.

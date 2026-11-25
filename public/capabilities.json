@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0.0",
+  "name": "Neon Gmail",
+  "url": "https://github30.github.io/neon-gmail/",
+  "repository": "https://github.com/GitHub30/neon-gmail",
+  "description": "Modern Gmail-inspired browser mail client with IMAP/SMTP proxy support (Cloudflare Workers, proxy.php, Node.js), multi-account switching, Light/Dark themes, and PWA.",
+  "protocols": ["IMAP4rev1 (TLS/STARTTLS)", "ESMTP (TLS/STARTTLS)", "REST/JSON Proxy API"],
+  "cors": {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Proxy-Token"
+  },
+  "proxies": [
+    {
+      "id": "cloudflare-workers",
+      "name": "Cloudflare Workers Mail Proxy",
+      "download": "https://github30.github.io/neon-gmail/proxies/cloudflare-worker.js",
+      "runtime": "cloudflare:sockets"
+    },
+    {
+      "id": "php",
+      "name": "Standalone PHP Proxy (proxy.php)",
+      "download": "https://github30.github.io/neon-gmail/proxies/proxy.php",
+      "runtime": "PHP 8.0+ (zero dependencies)"
+    },
+    {
+      "id": "node",
+      "name": "Standalone Node.js Proxy (proxy-node.mjs)",
+      "download": "https://github30.github.io/neon-gmail/proxies/proxy-node.mjs",
+      "runtime": "Node.js 20+"
+    }
+  ],
+  "features": [
+    "inbox-categories",
+    "threaded-conversations",
+    "rich-text-compose",
+    "mime-attachments",
+    "undo-send",
+    "schedule-send",
+    "snooze",
+    "custom-labels",
+    "advanced-gmail-search-operators",
+    "multi-account-localstorage-dropdown",
+    "light-dark-system-themes",
+    "keyboard-shortcuts",
+    "offline-pwa",
+    "xss-html-sanitizer",
+    "ssrf-hardened-proxies"
+  ],
+  "documentation": {
+    "llms_txt": "https://github30.github.io/neon-gmail/llms.txt",
+    "llms_full_txt": "https://github30.github.io/neon-gmail/llms-full.txt",
+    "openapi": "https://github30.github.io/neon-gmail/openapi.json",
+    "docs_html": "https://github30.github.io/neon-gmail/docs/"
+  }
+}

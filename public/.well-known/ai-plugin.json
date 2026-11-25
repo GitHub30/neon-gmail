@@ -1,0 +1,15 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Neon Gmail",
+  "name_for_model": "neon_gmail",
+  "description_for_human": "Modern Gmail-style webmail client with Cloudflare Workers, proxy.php, and Node.js IMAP/SMTP proxies.",
+  "description_for_model": "Browser-based Gmail-compatible email client supporting multi-account localStorage switching and CORS-enabled IMAP/SMTP proxy endpoints via Cloudflare Workers, proxy.php, or Node.js.",
+  "auth": { "type": "none" },
+  "api": {
+    "type": "openapi",
+    "url": "https://github30.github.io/neon-gmail/openapi.json"
+  },
+  "logo_url": "https://github30.github.io/neon-gmail/icons/icon-512.png",
+  "contact_email": "noreply@github30.github.io",
+  "legal_info_url": "https://github.com/GitHub30/neon-gmail"
+}
